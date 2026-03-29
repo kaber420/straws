@@ -1,0 +1,8 @@
+{
+  "appName": { "message": "Pajitas Proxy" },
+  "appDesc": { "message": "Redirección de navegador sin rituales para desarrollo soberano." },
+  "addStraw": { "message": "AÑADIR PAJITA" },
+  "activateStraws": { "message": "Activar Pajitas" },
+  "disposeStraw": { "message": "Desechar Pajita" },
+  "noStraws": { "message": "No hay pajitas de redirección." }
+}

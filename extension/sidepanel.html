@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="appName">Straws Proxy | Side Panel</title>
+    <link rel="stylesheet" href="ui/css/base.css">
+    <style>
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg-solid);
+        }
+        .sidepanel-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 20px;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        .header-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--primary);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--primary);
+        }
+        .logo-text {
+            font-size: 0.9rem;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            margin: 0;
+            text-transform: uppercase;
+        }
+        #strawList {
+            flex-shrink: 0;
+        }
+        .footer-status {
+            margin-top: auto;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+            padding: 4px 10px;
+            border-radius: 999px;
+            align-self: flex-start;
+        }
+        .version-text {
+            font-size: 0.65rem;
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body data-theme="frost">
+    <div class="sidepanel-container">
+        <header class="header-section">
+            <div class="logo">
+                <div class="logo-dot"></div>
+                <h1 class="logo-text" data-i18n="appName">STRAWS</h1>
+            </div>
+        </header>
+
+        <section class="glass-bubble" style="background: rgba(0,0,0,0.2); padding: 18px;">
+            <h3 data-i18n="addStraw" style="margin: 0 0 12px 0; font-size: 0.75rem; opacity: 0.5; font-weight: 800; letter-spacing: 0.05em;">ADD STRAW</h3>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <input type="text" id="hostInput" placeholder="Domain (e.g., local.kbr)">
+                <input type="text" id="targetInput" placeholder="Target (e.g., localhost:8000)">
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                    <span style="font-size: 0.65rem; font-weight: 800; opacity: 0.4;">HEADERS</span>
+                    <button id="addHeaderBtn" class="btn btn-outline" style="padding: 4px 10px; font-size: 0.6rem; border-radius: 8px;">+ Add</button>
+                </div>
+                
+                <div id="headerList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+
+                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <button class="preset-btn btn btn-outline" data-type="bearer" style="font-size: 0.6rem; padding: 4px 8px; border-radius: 8px;">🔑 Bearer</button>
+                    <button class="preset-btn btn btn-outline" data-type="basic" style="font-size: 0.6rem; padding: 4px 8px; border-radius: 8px;">👤 Basic</button>
+                </div>
+
+                <button id="addStrawBtn" data-i18n="activateStraws" class="btn btn-primary" style="margin-top: 4px; width: 100%;">Activate Straws</button>
+            </div>
+        </section>
+
+        <section>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px 8px;">
+                <h3 style="margin: 0; font-size: 0.75rem; opacity: 0.5; font-weight: 800; letter-spacing: 0.05em;" data-i18n="inspection">INSPECTION</h3>
+                <button id="clearLogsBtn" class="btn-outline" style="font-size: 0.6rem; padding: 2px 8px; border-radius: 6px; opacity: 0.5;">Clear</button>
+            </div>
+            <div id="logList" class="log-container"></div>
+        </section>
+
+        <footer class="footer-status">
+            <div id="statusPill" class="status-pill disconnected">
+                <div class="status-dot"></div>
+                <span id="statusText">CONNECTING...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="version-text">Port: 9000 | v1.2</span>
+                <div style="display: flex; gap: 6px;">
+                    <button class="theme-btn btn-outline" data-theme="frost" style="padding: 3px 6px; font-size: 0.6rem; border-radius: 6px;">Frost</button>
+                    <button class="theme-btn btn-outline" data-theme="neo" style="padding: 3px 6px; font-size: 0.6rem; border-radius: 6px;">Neo</button>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="ui/js/storage.js"></script>
+    <script src="ui/js/theme_engine.js"></script>
+    <script src="ui/js/ui.js"></script>
+</body>
+</html>

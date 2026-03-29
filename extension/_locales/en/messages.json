@@ -1,0 +1,8 @@
+{
+  "appName": { "message": "Straws Proxy" },
+  "appDesc": { "message": "Zero-ritual browser redirection for sovereign development." },
+  "addStraw": { "message": "ADD STRAW" },
+  "activateStraws": { "message": "Activate Straws" },
+  "disposeStraw": { "message": "Dispose Straw" },
+  "noStraws": { "message": "No redirection straws." }
+}
