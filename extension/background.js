@@ -87,7 +87,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "open_sidepanel") {
-        chrome.sidePanel.open({ windowId: sender.tab?.windowId || chrome.windows.WINDOW_ID_CURRENT });
+        chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT }).catch(err => console.error(err));
     } else if (msg.type === "get_logs") {
         sendResponse({ logs: recentRequests });
     } else if (msg.type === "clear_logs") {
@@ -95,6 +95,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ success: true });
     } else if (msg.type === "get_status") {
         sendResponse({ status: nativePort ? "connected" : "disconnected" });
+    } else if (msg.type === "stop_host") {
+        sendNative({ type: "shutdown" });
+        sendResponse({ success: true });
     }
 });
 

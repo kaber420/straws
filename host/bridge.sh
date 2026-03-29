@@ -1,3 +1,3 @@
 #!/bin/bash
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-python3 "$DIR/bridge.py" "$@"
+"$DIR/.venv/bin/python3" "$DIR/bridge.py" "$@"

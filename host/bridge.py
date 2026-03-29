@@ -7,6 +7,16 @@ import socketserver
 import http.client
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from PIL import Image
+import pystray
+
+# --- Global State ---
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+ICON_ACTIVE = os.path.join(ASSETS_DIR, "icon_active.png")
+ICON_INACTIVE = os.path.join(ASSETS_DIR, "icon_inactive.png")
+
+PAUSED = False
+TRAY_ICON = None
 
 # --- Native Messaging Protocol ---
 
@@ -50,6 +60,10 @@ STRAWS = load_rules()
 
 class StrawsProxyHandler(BaseHTTPRequestHandler):
     def handle_request(self):
+        if PAUSED:
+            self.send_error(503, "Straws Proxy is Paused")
+            return
+
         host_header = self.headers.get('Host')
         if not host_header:
             self.send_error(400, "Missing Host header")
@@ -131,6 +145,10 @@ class StrawsProxyHandler(BaseHTTPRequestHandler):
 
     def do_CONNECT(self):
         """Handle HTTPS tunneling."""
+        if PAUSED:
+            self.send_error(503, "Straws Proxy is Paused")
+            return
+
         host, port = self.path.split(":")
         rule = STRAWS.get(host)
         
@@ -207,13 +225,62 @@ class StrawsProxyHandler(BaseHTTPRequestHandler):
 
 def run_proxy(port=9000):
     server = HTTPServer(('127.0.0.1', port), StrawsProxyHandler)
+    server.allow_reuse_address = True
     server.serve_forever()
+
+# --- System Tray Logic ---
+
+def on_quit(icon, item):
+    icon.stop()
+    os._exit(0)
+
+def toggle_pause(icon, item):
+    global PAUSED
+    PAUSED = not PAUSED
+    icon.icon = Image.open(ICON_INACTIVE if PAUSED else ICON_ACTIVE)
+    icon.title = f"Straws (PAUSED)" if PAUSED else "Straws (Active)"
+
+def run_tray():
+    global TRAY_ICON
+    try:
+        import pystray
+        import ctypes
+        
+        # Check for system indicator libraries
+        indicator_lib = None
+        for libname in ['libayatana-appindicator3.so.1', 'libappindicator3.so.1', 'libappindicator.so.1']:
+            try:
+                indicator_lib = ctypes.CDLL(libname)
+                break
+            except:
+                continue
+
+        # Log backend and library status for debugging
+        with open("/tmp/straws.log", "a") as f:
+            f.write(f"[Tray] Starting tray. Indicator lib: {'Found' if indicator_lib else 'NOT FOUND'}\n")
+            
+        img = Image.open(ICON_ACTIVE)
+        menu = pystray.Menu(
+            pystray.MenuItem("Pausar Proxy", toggle_pause, checked=lambda item: PAUSED),
+            pystray.MenuItem("Salir / Cerrar", on_quit)
+        )
+        TRAY_ICON = pystray.Icon("straws", img, "Straws Proxy", menu)
+        TRAY_ICON.run()
+    except Exception as e:
+        with open("/tmp/straws.log", "a") as f:
+            f.write(f"[Tray] Error starting: {str(e)}\n")
 
 # --- Main Bridge Loop ---
 
 def main():
+    global STRAWS
+    # Start proxy server
     proxy_thread = threading.Thread(target=run_proxy, daemon=True)
     proxy_thread.start()
+
+    # Start system tray
+    tray_thread = threading.Thread(target=run_tray, daemon=True)
+    tray_thread.start()
 
     while True:
         try:
@@ -224,10 +291,9 @@ def main():
             command = msg.get('type')
             
             if command == 'ping':
-                send_message({"type": "pong", "status": "ok", "proxy_port": 9000})
+                send_message({"type": "pong", "status": "ok", "proxy_port": 9000, "paused": PAUSED})
             
             elif command == 'set_rules':
-                global STRAWS
                 STRAWS = msg.get('rules', {})
                 save_rules(STRAWS)
                 with open("/tmp/straws.log", "a") as f:
@@ -240,7 +306,11 @@ def main():
                     f.write(f"[EXT] {text}\n")
             
             elif command == 'get_status':
-                send_message({"type": "status", "straws": STRAWS, "proxy_port": 9000})
+                send_message({"type": "status", "straws": STRAWS, "proxy_port": 9000, "paused": PAUSED})
+            
+            elif command == 'shutdown':
+                send_message({"type": "shutdown_ack"})
+                on_quit(TRAY_ICON, None)
             
             else:
                 send_message({"type": "error", "message": f"Unknown command: {command}"})

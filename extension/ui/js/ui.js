@@ -34,7 +34,8 @@ window.StrawsUI = {
         logList: () => StrawsUI.root.getElementById('logList'),
         clearLogsBtn: () => StrawsUI.root.getElementById('clearLogsBtn'),
         statusPill: () => StrawsUI.root.getElementById('statusPill'),
-        statusText: () => StrawsUI.root.getElementById('statusText')
+        statusText: () => StrawsUI.root.getElementById('statusText'),
+        stopHostBtn: () => StrawsUI.root.getElementById('stopHostBtn')
     },
 
     bindEvents: () => {
@@ -58,6 +59,20 @@ window.StrawsUI = {
         presetBtns.forEach(btn => {
             btn.onclick = () => StrawsUI.handlePreset(btn.dataset.type);
         });
+        
+        const stopHost = StrawsUI.elements.stopHostBtn();
+        if (stopHost) stopHost.onclick = async () => {
+            if (confirm("Shutdown Straws Host?")) {
+                await chrome.runtime.sendMessage({ type: "stop_host" });
+            }
+        };
+
+        const openSidePanel = StrawsUI.root.getElementById('open-sidepanel');
+        if (openSidePanel) {
+            openSidePanel.onclick = () => {
+                chrome.runtime.sendMessage({ type: "open_sidepanel" });
+            };
+        }
 
         // Background Listeners
         chrome.runtime.onMessage.addListener((msg) => {
@@ -81,10 +96,20 @@ window.StrawsUI = {
     updateStatus: (status) => {
         const pill = StrawsUI.elements.statusPill();
         const text = StrawsUI.elements.statusText();
-        if (!pill || !text) return;
-
-        pill.className = `status-pill ${status}`;
-        text.textContent = status.toUpperCase() === 'CONNECTED' ? 'STRAWS ACTIVE' : 'HOST DISCONNECTED';
+        const stopBtn = StrawsUI.elements.stopHostBtn();
+        
+        if (pill) {
+            pill.className = `status-pill ${status}`;
+        }
+        
+        if (text) {
+            text.textContent = status.toUpperCase() === 'CONNECTED' ? 'STRAWS ACTIVE' : 'HOST DISCONNECTED';
+        }
+        
+        if (stopBtn) {
+            const isConnected = status.toUpperCase() === 'CONNECTED';
+            stopBtn.style.display = isConnected ? 'inline-block' : 'none';
+        }
     },
 
     refreshLogs: async () => {
@@ -136,7 +161,8 @@ window.StrawsUI = {
             <button class="remove-header" title="Remove">&times;</button>
         `;
         row.querySelector('.remove-header').onclick = () => row.remove();
-        StrawsUI.elements.headerList().appendChild(row);
+        const list = StrawsUI.elements.headerList();
+        if (list) list.appendChild(row);
         
         const focusTarget = key && !value ? '.header-value' : (!key ? '.header-key' : null);
         if (focusTarget) row.querySelector(focusTarget).focus();
@@ -151,7 +177,7 @@ window.StrawsUI = {
                 if (user && pass) StrawsUI.createHeaderRow('Authorization', `Basic ${btoa(user + ':' + pass)}`);
                 break;
             }
-            case 'user': StrawsUI.createHeaderRow('X-User', ''); break;
+            case 'user': StrawsUI.createHeaderRow('X-User', 'anonymous'); break;
             case 'debug': StrawsUI.createHeaderRow('X-Debug', '1'); break;
         }
     },
@@ -242,6 +268,17 @@ window.StrawsUI = {
     }
 };
 
-if (document.getElementById('strawList') || document.getElementById('ruleList')) {
-    document.addEventListener('DOMContentLoaded', () => StrawsUI.init(document));
+const startUI = () => {
+    const isUI = document.getElementById('strawList') || 
+                 document.getElementById('ruleList') || 
+                 document.getElementById('logList');
+    if (isUI) {
+        StrawsUI.init(document);
+    }
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startUI);
+} else {
+    startUI();
 }

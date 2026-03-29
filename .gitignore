@@ -34,3 +34,5 @@ wheels/
 # Extension
 node_modules/
 .DS_Store
+.venv/
+.env

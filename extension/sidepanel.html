@@ -109,6 +109,11 @@
         </section>
 
         <section>
+            <h3 style="margin: 0 0 12px 8px; font-size: 0.75rem; opacity: 0.5; font-weight: 800; letter-spacing: 0.05em;" data-i18n="activeStraws">ACTIVE STRAWS</h3>
+            <div id="strawList"></div>
+        </section>
+
+        <section>
             <div style="display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px 8px;">
                 <h3 style="margin: 0; font-size: 0.75rem; opacity: 0.5; font-weight: 800; letter-spacing: 0.05em;" data-i18n="inspection">INSPECTION</h3>
                 <button id="clearLogsBtn" class="btn-outline" style="font-size: 0.6rem; padding: 2px 8px; border-radius: 6px; opacity: 0.5;">Clear</button>
@@ -117,9 +122,12 @@
         </section>
 
         <footer class="footer-status">
-            <div id="statusPill" class="status-pill disconnected">
-                <div class="status-dot"></div>
-                <span id="statusText">CONNECTING...</span>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div id="statusPill" class="status-pill disconnected">
+                    <div class="status-dot"></div>
+                    <span id="statusText">CONNECTING...</span>
+                </div>
+                <button id="stopHostBtn" class="btn-outline" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); font-size: 0.65rem; padding: 4px 10px; border-radius: 8px; display: none;">Stop Host</button>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span class="version-text">Port: 9000 | v1.2</span>
