@@ -3,18 +3,15 @@
   "name": "StrawsProxy",
   "version": "1.2",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoQAP4AQbcdM1PzZ0bvlO2XsOUbXDw6L9Be7g9fnV4nTaTlSYHVJPfCPyrWS6I2sVfQr6KluDQiaxdSjgdwtKKpS8AA+TmpE0O7zczDvB7hhOBkYOQbJdw2uHHlcjn6Ur9DoiUSyaHgqbqWxXVRN8Lc30IQvjoO+ztG0JHKou7QeAa7UXd5im8Yc84nueo+Xc2zrkAdVupx4b20QT+Uf6VNuLhUN2Sul5q4TDxk9gz52cZ8cBZUj8oz+4ZSr7YyPrSa81ZI6cvuQT94/y6SzSjSXxG+muVztUz75lVL6aImVrGwn5eiKrKGikt/dNOol67MlJN2SjfyjZOQmCCj5ViQIDAQAB",
-  "default_locale": "en",
-  "description": "__MSG_appDesc__",
+  "description": "Straws Proxy",
   "permissions": [
     "proxy",
-    "nativeMessaging",
     "storage",
     "tabs",
     "scripting",
     "sidePanel"
   ],
   "action": {
-    "default_popup": "popup.html"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -26,7 +23,6 @@
     {
       "resources": [
         "ui/css/*.css",
-        "ui/css/themes/*.css",
         "ui/js/*.js"
       ],
       "matches": [

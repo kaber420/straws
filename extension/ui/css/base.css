@@ -1,6 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
 :root {
+    --primary: #38bdf8;
+    --primary-rgb: 56, 189, 248;
+    --primary-hover: #0ea5e9;
+    --bg-glass: rgba(15, 23, 42, 0.7);
+    --bg-solid: #0f172a;
+    --card-glass: rgba(30, 41, 59, 0.5);
+    --text: #f8fafc;
+    --text-dim: #94a3b8;
+    --border: rgba(255, 255, 255, 0.12);
+    --blur: 24px;
+    --shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+
     --radius-lg: 32px;
     --radius-md: 20px;
     --radius-sm: 12px;
@@ -100,6 +112,28 @@ input:focus {
     border-color: var(--primary);
     background: rgba(0, 0, 0, 0.4);
     box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.1);
+}
+
+.header-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.header-row input {
+    flex: 1;
+    font-size: 0.7rem;
+    padding: 6px 12px;
+}
+
+.remove-header {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
 }
 
 .btn {
@@ -280,6 +314,12 @@ input:focus {
     color: #10b981;
     background: rgba(16, 185, 129, 0.1);
     border-color: rgba(16, 185, 129, 0.2);
+}
+
+.status-pill.paused {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.2);
 }
 
 .status-pill.disconnected {

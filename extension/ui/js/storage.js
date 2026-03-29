@@ -1,20 +1,14 @@
 const StrawsStorage = {
     getStraws: () => new Promise(resolve => {
-        chrome.storage.local.get("rules", data => resolve(data.rules || {}));
+        chrome.runtime.sendMessage({ type: "get_status" }, (resp) => {
+            resolve(resp ? resp.rules : {});
+        });
     }),
     saveStraw: (host, config) => new Promise(resolve => {
-        chrome.storage.local.get("rules", data => {
-            const rules = data.rules || {};
-            rules[host] = config;
-            chrome.storage.local.set({ rules }, resolve);
-        });
+        chrome.runtime.sendMessage({ type: "add_rule", host, ...config }, resolve);
     }),
     deleteStraw: (host) => new Promise(resolve => {
-        chrome.storage.local.get("rules", data => {
-            const rules = data.rules || {};
-            delete rules[host];
-            chrome.storage.local.set({ rules }, resolve);
-        });
+        chrome.runtime.sendMessage({ type: "remove_rule", host }, resolve);
     }),
     getTheme: () => new Promise(resolve => {
         chrome.storage.local.get("theme", data => resolve(data.theme || 'frost'));

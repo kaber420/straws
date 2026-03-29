@@ -2,5 +2,11 @@
     "kaber420.local": {
         "headers": {},
         "target": "127.0.0.1:8000"
-    }
+    },
+    "kaber123.local": {
+        "headers": {},
+        "target": "127.0.0.1:8000"
+    },
+    "careld.mx": "http://127.0.0.1:8100",
+    "careld.net": "127.0.0.1:8100"
 }

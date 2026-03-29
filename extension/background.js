@@ -1,110 +1,100 @@
-let nativePort = null;
-let recentRequests = [];
-const MAX_LOGS = 50;
+let socket = null;
+let isPaused = false;
+let rules = {};
+let isConnected = false;
 
-// --- Native Messaging ---
+function connectWS() {
+  console.log("Connecting to WebSocket...");
+  socket = new WebSocket("ws://127.0.0.1:9002");
 
-function connectNative() {
-  nativePort = chrome.runtime.connectNative("com.omni.straws");
-  nativePort.onMessage.addListener((msg) => {
-    if (msg.type === "request_log") {
-      recentRequests.unshift(msg.log);
-      if (recentRequests.length > MAX_LOGS) recentRequests.pop();
-      
-      // Update sidepanel if open
-      chrome.runtime.sendMessage({ type: "new_log", log: msg.log });
+  socket.onopen = () => {
+    console.log("WebSocket connected");
+    isConnected = true;
+    chrome.runtime.sendMessage({ type: "status_updated", connected: true }).catch(() => {});
+  };
+
+  socket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    console.log("WS msg:", msg);
+    
+    if (msg.type === "ready") {
+      rules = msg.rules || {};
+      isPaused = !!msg.paused;
+      updateProxy();
+    } else if (msg.type === "rules_updated") {
+      rules = msg.rules;
+      updateProxy();
+      chrome.runtime.sendMessage({ type: "rules_updated", rules }).catch(() => {});
+    } else if (msg.type === "status_updated") {
+      isPaused = !!msg.paused;
+      updateProxy();
+      chrome.runtime.sendMessage({ type: "status_updated", paused: isPaused }).catch(() => {});
+    } else if (msg.type === "traffic") {
+      chrome.runtime.sendMessage({ type: "traffic", data: msg.data }).catch(() => {});
+    } else if (msg.status === "ok") {
+        // Generic OK response handled if needed
     }
-  });
-  nativePort.onDisconnect.addListener(() => {
-    nativePort = null;
-    chrome.runtime.sendMessage({ type: "connection_status", status: "disconnected" });
-  });
-}
+  };
 
-function sendNative(msg) {
-  if (!nativePort) connectNative();
-  if (nativePort) {
-    nativePort.postMessage(msg);
-  }
-}
+  socket.onclose = () => {
+    console.warn("WebSocket disconnected, retrying in 3s...");
+    isConnected = false;
+    socket = null;
+    rules = {};
+    isPaused = false;
+    updateProxy(); // Clears proxy if socket is lost
+    chrome.runtime.sendMessage({ type: "status_updated", connected: false }).catch(() => {});
+    setTimeout(connectWS, 3000);
+  };
 
-function logToBridge(text) {
-  sendNative({ type: "log", text: text });
+  socket.onerror = (err) => {
+    console.error("WebSocket error:", err);
+    socket.close();
+  };
 }
-
-// --- PAC Management ---
 
 function generatePacScript(rules) {
   let pacRules = "";
-  for (const [hostname, config] of Object.entries(rules)) {
+  for (const [hostname, target] of Object.entries(rules)) {
     pacRules += `if (shExpMatch(host, "${hostname}")) return "PROXY 127.0.0.1:9000";\n    `;
   }
-  
-  return `
-function FindProxyForURL(url, host) {
-    ${pacRules}
-    return "DIRECT";
-}
-  `;
+  return `function FindProxyForURL(url, host) {\n    ${pacRules}\n    return "DIRECT";\n}`;
 }
 
 async function updateProxy() {
-  const data = await chrome.storage.local.get("rules");
-  const rules = data.rules || {};
-  
-  sendNative({ type: "set_rules", rules });
+  if (!isConnected || isPaused) {
+    await chrome.proxy.settings.clear({ scope: "regular" });
+    return;
+  }
 
   const pacScript = generatePacScript(rules);
   const config = {
     mode: "pac_script",
-    pacScript: {
-      data: pacScript
-    }
+    pacScript: { data: pacScript }
   };
 
-  chrome.proxy.settings.set({ value: config, scope: "regular" });
+  chrome.proxy.settings.set({ value: config, scope: "regular" }, () => {
+    if (chrome.runtime.lastError) console.error("Proxy error:", chrome.runtime.lastError);
+  });
 }
 
-chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === "local" && changes.rules) {
-    updateProxy();
-  }
-});
-
-chrome.runtime.onInstalled.addListener(async () => {
-    const data = await chrome.storage.local.get("rules");
-    if (!data.rules) {
-        chrome.storage.local.set({ rules: {} });
-    }
-    connectNative();
-});
-
-
-chrome.runtime.onStartup.addListener(() => {
-    connectNative();
-    updateProxy();
-});
-
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === "open_sidepanel") {
-        chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT }).catch(err => console.error(err));
-    } else if (msg.type === "get_logs") {
-        sendResponse({ logs: recentRequests });
-    } else if (msg.type === "clear_logs") {
-        recentRequests = [];
-        sendResponse({ success: true });
-    } else if (msg.type === "get_status") {
-        sendResponse({ status: nativePort ? "connected" : "disconnected" });
-    } else if (msg.type === "stop_host") {
-        sendNative({ type: "shutdown" });
-        sendResponse({ success: true });
-    }
-});
-
+// Side Panel behavior: open on click
 chrome.sidePanel
-  .setPanelBehavior({ openPanelOnActionClick: false })
+  .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error(error));
 
-setInterval(() => {
-    sendNative({ type: "ping" });
-}, 30000);
+chrome.runtime.onInstalled.addListener(() => connectWS());
+chrome.runtime.onStartup.addListener(() => connectWS());
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "get_status") {
+        sendResponse({ connected: isConnected, paused: isPaused, rules });
+    } else if (msg.type === "toggle_pause") {
+        if (isConnected) socket.send(JSON.stringify({ type: "toggle_pause" }));
+    } else if (msg.type === "add_rule") {
+        if (isConnected) socket.send(JSON.stringify({ type: "add_rule", host: msg.host, target: msg.target }));
+    } else if (msg.type === "remove_rule") {
+        if (isConnected) socket.send(JSON.stringify({ type: "remove_rule", host: msg.host }));
+    }
+    return true;
+});

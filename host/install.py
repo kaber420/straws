@@ -4,7 +4,7 @@ import json
 import platform
 import shutil
 
-HOST_NAME = "com.omni.straws_proxy"
+HOST_NAME = "com.omni.straws"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BRIDGE_PY = os.path.join(SCRIPT_DIR, "bridge.py")
 
@@ -19,7 +19,7 @@ def install_linux():
     with open(wrapper_path, "w") as f:
         f.write("#!/bin/bash\n")
         f.write('DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"\n')
-        f.write('python3 "$DIR/bridge.py" "$@"\n')
+        f.write('exec python3 "$DIR/bridge.py" "$@"\n')
     os.chmod(wrapper_path, 0o755)
 
     # 2. Define manifest
@@ -46,10 +46,14 @@ def install_windows():
     print(f"Key: HKEY_CURRENT_USER\\Software\\Google\\Chrome\\NativeMessagingHosts\\{HOST_NAME}")
     print(f"Value: {SCRIPT_DIR}\\{HOST_NAME}.json")
 
-if __name__ == "__main__":
+def install():
+    """Main installation entry point."""
     if platform.system() == "Linux":
         install_linux()
     elif platform.system() == "Windows":
         install_windows()
     else:
         print(f"Unsupported OS: {platform.system()}")
+
+if __name__ == "__main__":
+    install()

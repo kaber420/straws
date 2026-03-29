@@ -3,24 +3,8 @@ window.StrawsUI = {
     
     init: async (root = document) => {
         StrawsUI.root = root;
-        if (window.ThemeEngine) await ThemeEngine.init(root);
         StrawsUI.bindEvents();
         await StrawsUI.refreshStraws();
-        // i18n init
-        StrawsUI.applyI18n();
-    },
-
-    applyI18n: () => {
-        const elements = StrawsUI.root.querySelectorAll('[data-i18n]');
-        elements.forEach(el => {
-            const msg = chrome.i18n.getMessage(el.dataset.i18n);
-            if (msg) el.textContent = msg;
-        });
-        const placeholders = StrawsUI.root.querySelectorAll('[data-i18n-placeholder]');
-        placeholders.forEach(el => {
-            const msg = chrome.i18n.getMessage(el.dataset.i18nPlaceholder);
-            if (msg) el.placeholder = msg;
-        });
     },
 
     elements: {
@@ -30,12 +14,10 @@ window.StrawsUI = {
         headerList: () => StrawsUI.root.getElementById('headerList'),
         addHeaderBtn: () => StrawsUI.root.getElementById('addHeaderBtn'),
         addStrawBtn: () => StrawsUI.root.getElementById('addStrawBtn') || StrawsUI.root.getElementById('addRuleBtn'),
-        themeBtns: () => StrawsUI.root.querySelectorAll('.theme-btn'),
         logList: () => StrawsUI.root.getElementById('logList'),
         clearLogsBtn: () => StrawsUI.root.getElementById('clearLogsBtn'),
         statusPill: () => StrawsUI.root.getElementById('statusPill'),
-        statusText: () => StrawsUI.root.getElementById('statusText'),
-        stopHostBtn: () => StrawsUI.root.getElementById('stopHostBtn')
+        statusText: () => StrawsUI.root.getElementById('statusText')
     },
 
     bindEvents: () => {
@@ -45,81 +27,50 @@ window.StrawsUI = {
         const addStraw = StrawsUI.elements.addStrawBtn();
         if (addStraw) addStraw.onclick = StrawsUI.handleAddStraw;
         
-        StrawsUI.elements.themeBtns().forEach(btn => {
-            btn.onclick = () => ThemeEngine.set(btn.dataset.theme, StrawsUI.root);
-        });
-
         const clearLogs = StrawsUI.elements.clearLogsBtn();
-        if (clearLogs) clearLogs.onclick = async () => {
-            await chrome.runtime.sendMessage({ type: "clear_logs" });
-            StrawsUI.refreshLogs();
+        if (clearLogs) clearLogs.onclick = () => {
+            const list = StrawsUI.elements.logList();
+            if (list) list.innerHTML = '';
         };
-
-        const presetBtns = StrawsUI.root.querySelectorAll('.preset-btn[data-type]');
-        presetBtns.forEach(btn => {
-            btn.onclick = () => StrawsUI.handlePreset(btn.dataset.type);
-        });
-        
-        const stopHost = StrawsUI.elements.stopHostBtn();
-        if (stopHost) stopHost.onclick = async () => {
-            if (confirm("Shutdown Straws Host?")) {
-                await chrome.runtime.sendMessage({ type: "stop_host" });
-            }
-        };
-
-        const openSidePanel = StrawsUI.root.getElementById('open-sidepanel');
-        if (openSidePanel) {
-            openSidePanel.onclick = () => {
-                chrome.runtime.sendMessage({ type: "open_sidepanel" });
-            };
-        }
 
         // Background Listeners
         chrome.runtime.onMessage.addListener((msg) => {
-            if (msg.type === "new_log") {
-                StrawsUI.addLogEntry(msg.log);
-            } else if (msg.type === "connection_status") {
-                StrawsUI.updateStatus(msg.status);
+            if (msg.type === "traffic") {
+                StrawsUI.addLogEntry(msg.data);
+            } else if (msg.type === "rules_updated") {
+                StrawsUI.refreshStraws();
+            } else if (msg.type === "status_updated") {
+                StrawsUI.checkStatus();
             }
         });
 
-        // Initial fetch
-        StrawsUI.refreshLogs();
         StrawsUI.checkStatus();
     },
 
     checkStatus: async () => {
         const response = await chrome.runtime.sendMessage({ type: "get_status" });
-        if (response && response.status) StrawsUI.updateStatus(response.status);
+        if (response) {
+            StrawsUI.updateStatus(response.connected, response.paused);
+            if (response.rules) StrawsUI.renderRules(response.rules);
+        } else {
+            StrawsUI.updateStatus(false, false);
+        }
     },
 
-    updateStatus: (status) => {
+    updateStatus: (connected, paused) => {
         const pill = StrawsUI.elements.statusPill();
         const text = StrawsUI.elements.statusText();
-        const stopBtn = StrawsUI.elements.stopHostBtn();
         
         if (pill) {
-            pill.className = `status-pill ${status}`;
+            pill.className = `status-pill ${connected ? (paused ? 'paused' : 'connected') : 'disconnected'}`;
         }
         
         if (text) {
-            text.textContent = status.toUpperCase() === 'CONNECTED' ? 'STRAWS ACTIVE' : 'HOST DISCONNECTED';
-        }
-        
-        if (stopBtn) {
-            const isConnected = status.toUpperCase() === 'CONNECTED';
-            stopBtn.style.display = isConnected ? 'inline-block' : 'none';
-        }
-    },
-
-    refreshLogs: async () => {
-        const response = await chrome.runtime.sendMessage({ type: "get_logs" });
-        const container = StrawsUI.elements.logList();
-        if (!container) return;
-        
-        container.innerHTML = '';
-        if (response && response.logs) {
-            response.logs.forEach(log => StrawsUI.addLogEntry(log));
+            if (!connected) {
+                text.textContent = 'HOST DISCONNECTED';
+            } else {
+                text.textContent = paused ? 'PROXY PAUSED' : 'STRAWS ACTIVE';
+            }
         }
     },
 
@@ -136,23 +87,23 @@ window.StrawsUI = {
             <div class="log-header">
                 <div>
                     <span class="log-method">${log.method}</span>
-                    <span style="opacity:0.8">${log.hostname}</span>
+                    <span style="opacity:0.8">${log.host}</span>
                 </div>
                 <span class="log-status ${statusClass}">${log.status}</span>
             </div>
             <div class="log-details">
-                <div style="margin-bottom: 4px;">Path: ${log.path}</div>
-                <div>Target: ${log.target}</div>
+                <div>➡️ ${log.target}</div>
             </div>
         `;
 
-        entry.onclick = () => entry.classList.toggle('expanded');
-        
         container.prepend(entry);
         if (container.children.length > 50) container.lastElementChild.remove();
     },
 
     createHeaderRow: (key = '', value = '') => {
+        const list = StrawsUI.elements.headerList();
+        if (!list) return;
+
         const row = document.createElement('div');
         row.className = 'header-row';
         row.innerHTML = `
@@ -161,35 +112,7 @@ window.StrawsUI = {
             <button class="remove-header" title="Remove">&times;</button>
         `;
         row.querySelector('.remove-header').onclick = () => row.remove();
-        const list = StrawsUI.elements.headerList();
-        if (list) list.appendChild(row);
-        
-        const focusTarget = key && !value ? '.header-value' : (!key ? '.header-key' : null);
-        if (focusTarget) row.querySelector(focusTarget).focus();
-    },
-
-    handlePreset: (type) => {
-        switch (type) {
-            case 'bearer': StrawsUI.createHeaderRow('Authorization', 'Bearer '); break;
-            case 'basic': {
-                const user = prompt("Username:");
-                const pass = prompt("Password:");
-                if (user && pass) StrawsUI.createHeaderRow('Authorization', `Basic ${btoa(user + ':' + pass)}`);
-                break;
-            }
-            case 'user': StrawsUI.createHeaderRow('X-User', 'anonymous'); break;
-            case 'debug': StrawsUI.createHeaderRow('X-Debug', '1'); break;
-        }
-    },
-
-    getHeaders: () => {
-        const headers = {};
-        StrawsUI.root.querySelectorAll('.header-row').forEach(row => {
-            const k = row.querySelector('.header-key').value.trim();
-            const v = row.querySelector('.header-value').value.trim();
-            if (k) headers[k] = v;
-        });
-        return headers;
+        list.appendChild(row);
     },
 
     handleAddStraw: async () => {
@@ -197,14 +120,24 @@ window.StrawsUI = {
         const targetEl = StrawsUI.elements.targetInput();
         const host = hostEl.value.trim();
         const target = targetEl.value.trim();
-        const headers = StrawsUI.getHeaders();
         
         if (host && target) {
+            const headers = {};
+            const rows = StrawsUI.root.querySelectorAll('.header-row');
+            rows.forEach(row => {
+                const k = row.querySelector('.header-key').value.trim();
+                const v = row.querySelector('.header-value').value.trim();
+                if (k) headers[k] = v;
+            });
+
             await StrawsStorage.saveStraw(host, { target, headers });
+            
             hostEl.value = '';
             targetEl.value = '';
-            StrawsUI.elements.headerList().innerHTML = '';
-            await StrawsUI.refreshStraws();
+            const list = StrawsUI.elements.headerList();
+            if (list) list.innerHTML = '';
+            
+            StrawsUI.refreshStraws();
         } else {
             alert("Host and Target are required.");
         }
@@ -212,55 +145,44 @@ window.StrawsUI = {
 
     refreshStraws: async () => {
         const straws = await StrawsStorage.getStraws();
+        StrawsUI.renderRules(straws);
+    },
+
+    renderRules: (straws) => {
         const container = StrawsUI.elements.strawList();
         if (!container) return;
         
-        if (Object.keys(straws).length === 0) {
-            const msg = chrome.i18n.getMessage("noStraws") || "No redirection straws.";
-            container.innerHTML = `<div class="empty-state">${msg}</div>`;
+        if (!straws || Object.keys(straws).length === 0) {
+            container.innerHTML = `<div class="empty-state">No redirection straws.</div>`;
             return;
         }
 
         container.innerHTML = '';
-        const disposeMsg = chrome.i18n.getMessage("disposeStraw") || "Dispose Straw";
-
-        for (const [host, config] of Object.entries(straws)) {
+        for (const [host, target] of Object.entries(straws)) {
             const card = document.createElement('div');
             card.className = 'glass-bubble rule-item';
             
-            const tags = Object.entries(config.headers || {})
-                .map(([k, v]) => `<span class="tag">${k}: ${v}</span>`).join('');
-
             card.innerHTML = `
                 <div class="rule-header">
                     <div class="rule-info">
                         <div class="rule-host">${host}</div>
+                        <div class="rule-target" style="opacity: 0.7; font-size: 0.8rem;">➡️ ${typeof target === 'object' ? target.target : target}</div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <svg class="rule-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </div>
-                </div>
-                <div class="rule-details">
-                    <div class="rule-target" style="word-break: break-all; margin-bottom: 8px;">➡️ ${config.target}</div>
-                    ${tags ? `<div class="tags-container" style="border-top:none; margin-top:0; padding-top:0;">${tags}</div>` : ''}
-                    <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
-                        <button class="delete-btn" data-host="${host}" style="font-size: 0.7rem; display: flex; align-items: center; gap: 6px;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                            ${disposeMsg}
-                        </button>
-                    </div>
+                    <button class="delete-btn" data-host="${host}">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
                 </div>
             `;
             
-            card.onclick = (e) => {
-                if (e.target.closest('.delete-btn')) return;
-                card.classList.toggle('expanded');
-            };
-
             card.querySelector('.delete-btn').onclick = async (e) => {
                 e.stopPropagation();
-                await StrawsStorage.deleteStraw(host);
-                await StrawsUI.refreshStraws();
+                if (confirm(`Remove redirection for ${host}?`)) {
+                    await StrawsStorage.deleteStraw(host);
+                    StrawsUI.refreshStraws();
+                }
             };
             
             container.appendChild(card);
@@ -268,17 +190,8 @@ window.StrawsUI = {
     }
 };
 
-const startUI = () => {
-    const isUI = document.getElementById('strawList') || 
-                 document.getElementById('ruleList') || 
-                 document.getElementById('logList');
-    if (isUI) {
-        StrawsUI.init(document);
-    }
-};
-
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startUI);
+    document.addEventListener('DOMContentLoaded', () => StrawsUI.init());
 } else {
-    startUI();
+    StrawsUI.init();
 }
