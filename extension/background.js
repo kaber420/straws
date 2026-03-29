@@ -71,10 +71,14 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   }
 });
 
-chrome.runtime.onInstalled.addListener(() => {
-    chrome.storage.local.set({ rules: {} });
+chrome.runtime.onInstalled.addListener(async () => {
+    const data = await chrome.storage.local.get("rules");
+    if (!data.rules) {
+        chrome.storage.local.set({ rules: {} });
+    }
     connectNative();
 });
+
 
 chrome.runtime.onStartup.addListener(() => {
     connectNative();
