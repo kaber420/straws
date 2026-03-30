@@ -8,7 +8,9 @@ import urllib.parse
 import queue
 import asyncio
 import websockets
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import http.client
+import select
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from datetime import datetime
 
 # --- Global State ---
@@ -157,7 +159,7 @@ class StrawsHost:
                     self.host = host_instance
                     super().__init__(*args, **kwargs)
             
-            server = HTTPServer(('127.0.0.1', PROXY_PORT), CustomHandler)
+            server = ThreadingHTTPServer(('127.0.0.1', PROXY_PORT), CustomHandler)
             self.log(f"Proxy server active on http://127.0.0.1:{PROXY_PORT}", "Proxy")
             server.serve_forever()
         except Exception as e:
@@ -236,7 +238,6 @@ class StrawsProxyHandler(BaseHTTPRequestHandler):
             port = parsed_target.port or (int(target_url.split(':')[1]) if ':' in target_url and target_url.split(':')[1].isdigit() else 80)
             
             try:
-                import http.client
                 headers = {k: v for k, v in self.headers.items() if k.lower() != 'host'}
                 headers['Host'] = f"{host}:{port}" if port != 80 else host
 
@@ -311,7 +312,6 @@ class StrawsProxyHandler(BaseHTTPRequestHandler):
             self.send_error(502, f"Connect Error: {str(e)}")
 
     def relay_data(self, client_sock, target_sock):
-        import select
         socks = [client_sock, target_sock]
         try:
             while True:

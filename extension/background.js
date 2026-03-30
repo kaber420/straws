@@ -10,13 +10,13 @@ function connectWS() {
   socket.onopen = () => {
     console.log("WebSocket connected");
     isConnected = true;
-    chrome.runtime.sendMessage({ type: "status_updated", connected: true }).catch(() => {});
+    chrome.runtime.sendMessage({ type: "status_updated", connected: true }).catch(() => { });
   };
 
   socket.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     console.log("WS msg:", msg);
-    
+
     if (msg.type === "ready") {
       rules = msg.rules || {};
       isPaused = !!msg.paused;
@@ -24,15 +24,15 @@ function connectWS() {
     } else if (msg.type === "rules_updated") {
       rules = msg.rules;
       updateProxy();
-      chrome.runtime.sendMessage({ type: "rules_updated", rules }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "rules_updated", rules }).catch(() => { });
     } else if (msg.type === "status_updated") {
       isPaused = !!msg.paused;
       updateProxy();
-      chrome.runtime.sendMessage({ type: "status_updated", paused: isPaused }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "status_updated", paused: isPaused }).catch(() => { });
     } else if (msg.type === "traffic") {
-      chrome.runtime.sendMessage({ type: "traffic", data: msg.data }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "traffic", data: msg.data }).catch(() => { });
     } else if (msg.status === "ok") {
-        // Generic OK response handled if needed
+      // Generic OK response handled if needed
     }
   };
 
@@ -43,7 +43,7 @@ function connectWS() {
     rules = {};
     isPaused = false;
     updateProxy(); // Clears proxy if socket is lost
-    chrome.runtime.sendMessage({ type: "status_updated", connected: false }).catch(() => {});
+    chrome.runtime.sendMessage({ type: "status_updated", connected: false }).catch(() => { });
     setTimeout(connectWS, 3000);
   };
 
@@ -62,8 +62,11 @@ function generatePacScript(rules) {
 }
 
 async function updateProxy() {
-  if (!isConnected || isPaused) {
-    await chrome.proxy.settings.clear({ scope: "regular" });
+  if (!isConnected || isPaused || Object.keys(rules).length === 0) {
+    chrome.proxy.settings.clear({ scope: "regular" }, () => {
+      if (chrome.runtime.lastError) console.error("Clear error:", chrome.runtime.lastError);
+      else console.log("Proxy settings cleared (Internet direct).");
+    });
     return;
   }
 
@@ -85,16 +88,19 @@ chrome.sidePanel
 
 chrome.runtime.onInstalled.addListener(() => connectWS());
 chrome.runtime.onStartup.addListener(() => connectWS());
+chrome.runtime.onSuspend.addListener(() => {
+  chrome.proxy.settings.clear({ scope: "regular" });
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === "get_status") {
-        sendResponse({ connected: isConnected, paused: isPaused, rules });
-    } else if (msg.type === "toggle_pause") {
-        if (isConnected) socket.send(JSON.stringify({ type: "toggle_pause" }));
-    } else if (msg.type === "add_rule") {
-        if (isConnected) socket.send(JSON.stringify({ type: "add_rule", host: msg.host, target: msg.target }));
-    } else if (msg.type === "remove_rule") {
-        if (isConnected) socket.send(JSON.stringify({ type: "remove_rule", host: msg.host }));
-    }
-    return true;
+  if (msg.type === "get_status") {
+    sendResponse({ connected: isConnected, paused: isPaused, rules });
+  } else if (msg.type === "toggle_pause") {
+    if (isConnected) socket.send(JSON.stringify({ type: "toggle_pause" }));
+  } else if (msg.type === "add_rule") {
+    if (isConnected) socket.send(JSON.stringify({ type: "add_rule", host: msg.host, target: msg.target }));
+  } else if (msg.type === "remove_rule") {
+    if (isConnected) socket.send(JSON.stringify({ type: "remove_rule", host: msg.host }));
+  }
+  return true;
 });
