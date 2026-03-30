@@ -54,11 +54,23 @@ function connectWS() {
 }
 
 function generatePacScript(rules) {
-  let pacRules = "";
-  for (const [hostname, target] of Object.entries(rules)) {
-    pacRules += `if (shExpMatch(host, "${hostname}")) return "PROXY 127.0.0.1:9000";\n    `;
+  // Entregamos un objeto literal a Chrome para búsqueda O(1) (máxima eficiencia)
+  const hostMap = {};
+  for (const hostname in rules) {
+    hostMap[hostname] = 1;
   }
-  return `function FindProxyForURL(url, host) {\n    ${pacRules}\n    return "DIRECT";\n}`;
+  
+  const pacCode = `
+    var rules = ${JSON.stringify(hostMap)};
+    function FindProxyForURL(url, host) {
+      if (rules[host]) {
+        return "PROXY 127.0.0.1:9000";
+      }
+      return "DIRECT";
+    }
+  `.trim();
+
+  return pacCode;
 }
 
 async function updateProxy() {
