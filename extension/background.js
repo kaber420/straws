@@ -32,7 +32,11 @@ function connectWS() {
     } else if (msg.type === "traffic") {
       chrome.runtime.sendMessage({ type: "traffic", data: msg.data }).catch(() => { });
     } else if (msg.status === "ok") {
-      // Generic OK response handled if needed
+      if (msg.paused !== undefined) {
+        isPaused = !!msg.paused;
+        updateProxy();
+        chrome.runtime.sendMessage({ type: "status_updated", paused: isPaused }).catch(() => { });
+      }
     }
   };
 
@@ -98,8 +102,9 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error(error));
 
-chrome.runtime.onInstalled.addListener(() => connectWS());
-chrome.runtime.onStartup.addListener(() => connectWS());
+if (!socket) {
+  connectWS();
+}
 chrome.runtime.onSuspend.addListener(() => {
   chrome.proxy.settings.clear({ scope: "regular" });
 });
