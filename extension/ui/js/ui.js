@@ -17,7 +17,11 @@ window.StrawsUI = {
         logList: () => StrawsUI.root.getElementById('logList'),
         clearLogsBtn: () => StrawsUI.root.getElementById('clearLogsBtn'),
         statusPill: () => StrawsUI.root.getElementById('statusPill'),
-        statusText: () => StrawsUI.root.getElementById('statusText')
+        statusText: () => StrawsUI.root.getElementById('statusText'),
+        masterSwitchBtn: () => StrawsUI.root.getElementById('masterSwitchBtn'),
+        masterSwitchBg: () => StrawsUI.root.getElementById('masterSwitchBg'),
+        masterSwitchKnob: () => StrawsUI.root.getElementById('masterSwitchKnob'),
+        masterSwitchLabel: () => StrawsUI.root.getElementById('masterSwitchLabel')
     },
 
     bindEvents: () => {
@@ -32,6 +36,13 @@ window.StrawsUI = {
             const list = StrawsUI.elements.logList();
             if (list) list.innerHTML = '';
         };
+
+        const masterSwitch = StrawsUI.elements.masterSwitchBtn();
+        if (masterSwitch) {
+            masterSwitch.onclick = async () => {
+                await chrome.runtime.sendMessage({ type: "toggle_pause" });
+            };
+        }
 
         // Background Listeners
         chrome.runtime.onMessage.addListener((msg) => {
@@ -60,6 +71,9 @@ window.StrawsUI = {
     updateStatus: (connected, paused) => {
         const pill = StrawsUI.elements.statusPill();
         const text = StrawsUI.elements.statusText();
+        const switchBg = StrawsUI.elements.masterSwitchBg();
+        const switchKnob = StrawsUI.elements.masterSwitchKnob();
+        const switchLabel = StrawsUI.elements.masterSwitchLabel();
         
         if (pill) {
             pill.className = `status-pill ${connected ? (paused ? 'paused' : 'connected') : 'disconnected'}`;
@@ -70,6 +84,20 @@ window.StrawsUI = {
                 text.textContent = 'HOST DISCONNECTED';
             } else {
                 text.textContent = paused ? 'PROXY PAUSED' : 'STRAWS ACTIVE';
+            }
+        }
+
+        if (switchBg && switchKnob && switchLabel) {
+            if (connected && !paused) {
+                switchBg.style.background = '#10b981';
+                switchKnob.style.transform = 'translateX(14px)';
+                switchLabel.textContent = 'ON';
+                switchLabel.style.color = '#10b981';
+            } else {
+                switchBg.style.background = '#333';
+                switchKnob.style.transform = 'translateX(0)';
+                switchLabel.textContent = 'OFF';
+                switchLabel.style.color = '';
             }
         }
     },

@@ -79,10 +79,19 @@
 </head>
 <body>
     <div class="sidepanel-container">
-        <header class="header-section">
-            <div class="logo">
-                <div class="logo-dot"></div>
-                <h1 class="logo-text">STRAWS</h1>
+        <header class="header-section" style="flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div class="logo">
+                    <div class="logo-dot"></div>
+                    <h1 class="logo-text">STRAWS</h1>
+                </div>
+                <div style="width: 1px; height: 16px; background: var(--border);"></div>
+                <label id="masterSwitchBtn" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <div style="position: relative; width: 32px; height: 18px; background: #333; border-radius: 9px; transition: 0.3s;" id="masterSwitchBg">
+                        <div style="position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: white; border-radius: 50%; transition: 0.3s;" id="masterSwitchKnob"></div>
+                    </div>
+                    <span style="font-size: 0.65rem; font-weight: 800; opacity: 0.7;" id="masterSwitchLabel">OFF</span>
+                </label>
             </div>
             <div id="statusPill" class="status-pill disconnected">
                 <div class="status-dot"></div>

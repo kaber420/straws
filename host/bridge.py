@@ -27,6 +27,7 @@ class StrawsHost:
         self.log_queue: queue.Queue = queue.Queue()
         self.proxy_thread: threading.Thread = None # type: ignore
         self.cmd_thread: threading.Thread = None # type: ignore
+        self.ws_thread: threading.Thread = None # type: ignore
         self.running: bool = False
 
     def log(self, text, source="System"):
@@ -109,13 +110,27 @@ class StrawsHost:
         self.running = True
         self.proxy_thread = threading.Thread(target=self.run_proxy, daemon=True)
         self.cmd_thread = threading.Thread(target=self.run_socket_server, daemon=True)
+        self.ws_thread = threading.Thread(target=self._run_ws_logic, daemon=True)
         self.proxy_thread.start()
         self.cmd_thread.start()
+        self.ws_thread.start()
+
+    def _run_ws_logic(self):
+        """Helper to run the async WS server in a dedicated thread"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.run_ws_server())
         
     def start_sync(self):
         """Starts the host in a synchronous blocking loop (for standalone use)"""
         self.start()
-        asyncio.run(self.run_ws_server())
+        # Keep main thread alive if needed, or just sleep
+        try:
+            while self.running:
+                import time
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.stop()
 
     async def run_ws_server(self):
         self.log(f"WebSocket server starting on ws://127.0.0.1:{WS_PORT}", "WS")
@@ -256,6 +271,12 @@ class StrawsProxyHandler(BaseHTTPRequestHandler):
                 
                 self.send_response(res.status)
                 for k, v in res.getheaders():
+                    if k.lower() == 'location':
+                        if v.startswith('http://') or v.startswith('https://'):
+                            loc_parsed = urllib.parse.urlparse(v)
+                            loc_port = loc_parsed.port or (443 if loc_parsed.scheme == 'https' else 80)
+                            if loc_parsed.hostname == host and loc_port == port:
+                                v = urllib.parse.urlunparse((loc_parsed.scheme, hostname, loc_parsed.path, loc_parsed.params, loc_parsed.query, loc_parsed.fragment))
                     self.send_header(k, v)
                 self.end_headers()
                 self.wfile.write(res.read())

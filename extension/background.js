@@ -40,9 +40,9 @@ function connectWS() {
     console.warn("WebSocket disconnected, retrying in 3s...");
     isConnected = false;
     socket = null;
-    rules = {};
-    isPaused = false;
-    updateProxy(); // Clears proxy if socket is lost
+    // We NO LONGER wipe rules here. 
+    // We keep the last known state so the UI doesn't flicker to empty.
+    updateProxy(); // Still check if we need to clear proxy due to disconnection (if desired)
     chrome.runtime.sendMessage({ type: "status_updated", connected: false }).catch(() => { });
     setTimeout(connectWS, 3000);
   };
