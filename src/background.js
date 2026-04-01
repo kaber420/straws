@@ -15,78 +15,128 @@ async function syncRules() {
   const currentRuleIds = new Set(currentRules.map(r => r.id));
 
   const rulesToNodes = (rule) => {
-    let host = 'localhost';
-    let port = '';
-    const cleanDest = rule.destination.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-
-    if (cleanDest.includes(':')) {
-      const parts = cleanDest.split(':');
-      host = parts[0] || 'localhost';
-      port = parts[1].replace(/\D/g, '');
-    } else if (/^\d+$/.test(cleanDest)) {
-      host = 'localhost';
-      port = cleanDest;
-    } else {
-      host = cleanDest;
-    }
-    host = host.replace(/^\/+|\/+$/g, '');
+    const nodes = [];
     let safeSource = rule.source.replace(/^https?:\/\//, '').replace(/\/?$/, '');
+    const baseId = parseInt(rule.id, 10);
 
-    return {
-      id: parseInt(rule.id, 10),
-      priority: 1,
-      action: {
-        type: 'redirect',
-        redirect: {
-          transform: {
-            scheme: 'http',
-            host: host,
-            ...(port ? { port: port } : {})
+    const condition = {
+      urlFilter: `||${safeSource}`,
+      resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+    };
+
+    // 1. Primary Action Rule (Redirect or Block)
+    if (rule.type === 'block') {
+      nodes.push({
+        id: baseId,
+        priority: 1,
+        action: { type: 'block' },
+        condition
+      });
+    } else if (rule.type === 'redirect' || !rule.type) {
+      let host = 'localhost';
+      let port = '';
+      const cleanDest = rule.destination.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
+      if (cleanDest.includes(':')) {
+        const parts = cleanDest.split(':');
+        host = parts[0] || 'localhost';
+        port = parts[1].replace(/\D/g, '');
+      } else if (/^\d+$/.test(cleanDest)) {
+        host = 'localhost';
+        port = cleanDest;
+      } else {
+        host = cleanDest;
+      }
+      host = host.replace(/^\/+|\/+$/g, '');
+
+      nodes.push({
+        id: baseId,
+        priority: 1,
+        action: {
+          type: 'redirect',
+          redirect: {
+            transform: {
+              scheme: 'http',
+              host: host,
+              ...(port ? { port: port } : {})
+            }
+          }
+        },
+        condition
+      });
+    }
+
+    // 2. Headers Rule (DNR allows only one action per rule, so we use a second rule for headers)
+    if (rule.headers) {
+      const requestHeaders = [];
+      rule.headers.split('\n').forEach(line => {
+        const parts = line.split(':');
+        if (parts.length >= 2) {
+          const name = parts[0].trim();
+          const value = parts.slice(1).join(':').trim();
+          if (name) {
+            requestHeaders.push({ header: name, operation: 'set', value: value });
           }
         }
-      },
-      condition: {
-        urlFilter: `||${safeSource}`,
-        resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+      });
+
+      if (requestHeaders.length > 0) {
+        nodes.push({
+          id: 100000 + baseId,
+          priority: 1,
+          action: {
+            type: 'modifyHeaders',
+            requestHeaders: requestHeaders
+          },
+          condition
+        });
       }
-    };
+    }
+
+    return nodes;
   };
 
   const addRules = [];
   const removeRuleIds = [];
 
-  // Rules that should be active for DNR (Redirect mode)
+  // Rules that should be active for DNR
   const activeRulesInStorage = Object.values(rulesObj).filter(r => 
-    r.active && r.source && r.destination && masterSwitch && (r.type === 'redirect' || !r.type)
+    r.active && r.source && masterSwitch && (r.type === 'redirect' || r.type === 'block' || !r.type)
   );
-  const activeRuleIdsInStorage = new Set(activeRulesInStorage.map(r => parseInt(r.id, 10)));
+  
+  const allGeneratedNodes = activeRulesInStorage.flatMap(r => rulesToNodes(r));
+  const activeNodeIds = new Set(allGeneratedNodes.map(n => n.id));
 
   // Determine what to remove: 
-  // 1. Rules in DNR that are no longer active or don't exist in storage
   for (const id of currentRuleIds) {
-    if (!activeRuleIdsInStorage.has(id)) {
+    if (!activeNodeIds.has(id)) {
       removeRuleIds.push(id);
     }
   }
 
   // Determine what to add or update:
-  // 2. Rules in storage that are not in DNR, or have changed
-  for (const rule of activeRulesInStorage) {
-    const id = parseInt(rule.id, 10);
-    const generatedRule = rulesToNodes(rule);
-    const existingRule = currentRules.find(r => r.id === id);
+  for (const node of allGeneratedNodes) {
+    const existingRule = currentRules.find(r => r.id === node.id);
 
     if (!existingRule) {
-      addRules.push(generatedRule);
+      addRules.push(node);
     } else {
-      // Check for changes (simple deep comparison of condition and action)
-      const hasChanged = JSON.stringify(existingRule.condition) !== JSON.stringify(generatedRule.condition) ||
-                         JSON.stringify(existingRule.action) !== JSON.stringify(generatedRule.action);
+      // Check for changes
+      const hasChanged = JSON.stringify(existingRule.condition) !== JSON.stringify(node.condition) ||
+                         JSON.stringify(existingRule.action) !== JSON.stringify(node.action);
       if (hasChanged) {
-        removeRuleIds.push(id);
-        addRules.push(generatedRule);
+        removeRuleIds.push(node.id);
+        addRules.push(node);
       }
     }
+  }
+
+  if (removeRuleIds.length > 0 || addRules.length > 0) {
+    console.log("Updating DNR rules:", { add: addRules.length, remove: removeRuleIds.length });
+    await browser.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: removeRuleIds,
+      addRules: addRules
+    });
   }
 
   // Update Proxy Settings (Phase 3)

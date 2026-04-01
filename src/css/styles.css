@@ -4,9 +4,9 @@
   --bg-glass: rgba(30, 41, 59, 0.7);
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --accent-primary: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-glow: rgba(59, 130, 246, 0.5);
+  --accent-primary: #f59e0b;
+  --accent-hover: #d97706;
+  --accent-glow: rgba(245, 158, 11, 0.5);
   --success: #10b981;
   --error: #ef4444;
   --border: rgba(255, 255, 255, 0.1);
@@ -213,16 +213,39 @@ input:checked + .slider:before {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 1rem;
-  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
   border-radius: var(--radius-sm);
-  transition: color 0.2s, background 0.2s;
+  transition: all 0.2s;
+  width: 28px;
+  height: 28px;
+}
+
+.btn-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }
 
 .btn-icon:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.btn-icon.delete-rule-btn:hover {
   color: var(--error);
   background: rgba(239, 68, 68, 0.1);
 }
+
+.btn-icon.key-rule-btn:hover {
+  color: var(--accent-primary);
+  background: rgba(245, 158, 11, 0.1);
+}
+
 
 /* Rules Section */
 .rules-section {
