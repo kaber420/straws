@@ -1,0 +1,3 @@
+[submodule "go-engine"]
+	path = go-engine
+	url = ../go-engine
