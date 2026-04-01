@@ -1,0 +1,30 @@
+{
+  "name": "straws",
+  "version": "1.0.0",
+  "description": "Powerful declarative proxy engine (Manual Transmission).",
+  "type": "module",
+  "scripts": {
+    "dev:chrome": "VITE_BROWSER=chrome vite",
+    "dev:firefox": "VITE_BROWSER=firefox vite",
+    "build:chrome": "VITE_BROWSER=chrome vite build",
+    "build:firefox": "VITE_BROWSER=firefox vite build",
+    "test": "node tests/firefox-e2e.test.cjs",
+    "test:firefox": "node tests/firefox-e2e.test.cjs",
+    "test:chrome": "node tests/chrome-e2e.test.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "firefox-extension",
+    "redirect",
+    "proxy"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/webextension-polyfill": "^0.10.7",
+    "puppeteer": "^24.40.0",
+    "vite": "^6.2.0",
+    "vite-plugin-web-extension": "^4.1.7",
+    "webextension-polyfill": "^0.12.0"
+  }
+}
