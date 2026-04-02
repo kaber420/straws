@@ -16,14 +16,17 @@
         </div>
         
         <nav class="nav-group">
-            <a href="#" class="nav-item active">
+            <a href="#" class="nav-item active" data-view="network" id="nav-network">
                 <span class="icon">🕸</span> Network Traces
             </a>
-            <a href="#" class="nav-item">
+            <a href="#" class="nav-item" data-view="metrics" id="nav-metrics">
                 <span class="icon">📊</span> Metrics
             </a>
-            <a href="#" class="nav-item">
+            <a href="#" class="nav-item" data-view="certificates" id="nav-certificates">
                 <span class="icon">🔐</span> Certificates
+            </a>
+            <a href="#" class="nav-item" data-view="leaves" id="nav-leaves">
+                <span class="icon">💻</span> Leaves
             </a>
             <a href="#" class="nav-item">
                 <span class="icon">⚙️</span> Settings
@@ -40,57 +43,151 @@
 
     <!-- 2. Main Stage -->
     <main class="main-view">
-        <header class="view-header">
-            <div class="header-title">
-                <h2>Network Activity <span class="count-badge" id="log-count">0</span></h2>
-            </div>
-            <div class="header-toolbar">
-                <button id="live-btn" class="btn btn-live" title="Capture from Browser (webRequest)">
-                    <span class="icon">📡</span> <span class="btn-text">Browser Logs</span>
-                </button>
-                <button id="engine-log-btn" class="btn btn-engine" title="Capture from Go Engine (Telemetry)">
-                    <span class="icon">🚀</span> <span class="btn-text">Engine Logs</span>
-                </button>
-                <button id="record-btn" class="btn btn-record">
-                    <span class="icon">⏺</span> <span class="btn-text">Record Session</span>
-                </button>
-                <button id="clear-btn" class="btn">Clear</button>
-            </div>
-        </header>
+        <!-- View: Network Traces -->
+        <div id="view-network" class="view-container">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Network Activity <span class="count-badge" id="log-count">0</span></h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="live-btn" class="btn btn-live" title="Capture from Browser (webRequest)">
+                        <span class="icon">📡</span> <span class="btn-text">Browser Logs</span>
+                    </button>
+                    <button id="engine-log-btn" class="btn btn-engine" title="Capture from Go Engine (Telemetry)">
+                        <span class="icon">🚀</span> <span class="btn-text">Engine Logs</span>
+                    </button>
+                    <button id="record-btn" class="btn btn-record">
+                        <span class="icon">⏺</span> <span class="btn-text">Record Session</span>
+                    </button>
+                    <button id="clear-btn" class="btn">Clear</button>
+                </div>
+            </header>
 
-        <!-- Filter Bar -->
-        <section class="filter-section">
-            <div class="search-wrapper">
-                <span class="search-icon" style="position:absolute; left:12px; top:8px; opacity:0.5">🔍</span>
-                <input type="text" id="filter-input" placeholder="Search by URL, Regex, Method...">
-            </div>
-            <div class="cat-filters">
-                <button class="pill active" data-filter="all">All</button>
-                <button class="pill" data-filter="api">Fetch/XHR</button>
-                <button class="pill" data-filter="asset">Assets</button>
-                <button class="pill" data-filter="doc">Doc</button>
-            </div>
-        </section>
+            <!-- Filter Bar -->
+            <section class="filter-section">
+                <div class="search-wrapper">
+                    <span class="search-icon" style="position:absolute; left:12px; top:8px; opacity:0.5">🔍</span>
+                    <input type="text" id="filter-input" placeholder="Search by URL, Regex, Method...">
+                </div>
+                <div class="cat-filters">
+                    <button class="pill active" data-filter="all">All</button>
+                    <button class="pill" data-filter="api">Fetch/XHR</button>
+                    <button class="pill" data-filter="asset">Assets</button>
+                    <button class="pill" data-filter="doc">Doc</button>
+                </div>
+            </section>
 
-        <!-- Dynamic Table -->
-        <div class="table-wrapper">
-            <table id="network-table">
-                <thead>
-                    <tr>
-                        <th style="width: 80px">Time</th>
-                        <th style="width: 80px">Method</th>
-                        <th>URL</th>
-                        <th style="width: 100px">Status</th>
-                        <th style="width: 100px">Type</th>
-                        <th style="width: 100px">From</th>
-                        <th style="width: 100px">Size</th>
-                        <th class="waterfall-col">Waterfall</th>
-                    </tr>
-                </thead>
-                <tbody id="network-body">
-                    <!-- Dynamic logs here -->
-                </tbody>
-            </table>
+            <!-- Dynamic Table -->
+            <div class="table-wrapper">
+                <table id="network-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 80px">Time</th>
+                            <th style="width: 80px">Method</th>
+                            <th>URL</th>
+                            <th style="width: 100px">Status</th>
+                            <th style="width: 100px">Type</th>
+                            <th style="width: 100px">From</th>
+                            <th style="width: 100px">Size</th>
+                            <th class="waterfall-col">Waterfall</th>
+                        </tr>
+                    </thead>
+                    <tbody id="network-body">
+                        <!-- Dynamic logs here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- View: Metrics (Hidden by default) -->
+        <div id="view-metrics" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Observability Metrics</h2>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="m-label">Total Requests</div>
+                        <div class="m-value" id="stat-total-req">0</div>
+                        <div class="m-sub">Current session</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Data Transferred</div>
+                        <div class="m-value" id="stat-total-data">0 MB</div>
+                        <div class="m-sub">Downstream total</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Error Rate</div>
+                        <div class="m-value" id="stat-error-rate">0%</div>
+                        <div class="m-sub">4xx & 5xx responses</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Active Domains</div>
+                        <div class="m-value" id="stat-active-domains">0</div>
+                        <div class="m-sub">Registered rules</div>
+                    </div>
+                </div>
+
+                <div class="metrics-section">
+                    <h3>Traffic Health (Status Codes)</h3>
+                    <div class="status-dist-container">
+                        <div class="status-bar" id="status-distribution-bar">
+                            <!-- Segmented bar via JS -->
+                        </div>
+                        <div class="status-legend">
+                            <span class="leg-item"><i class="dot s2"></i> 2xx</span>
+                            <span class="leg-item"><i class="dot s3"></i> 3xx</span>
+                            <span class="leg-item"><i class="dot s4"></i> 4xx</span>
+                            <span class="leg-item"><i class="dot s5"></i> 5xx</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- View: Certificates (Hidden by default) -->
+        <div id="view-certificates" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Managed Certificates</h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="refresh-certs-btn" class="btn" title="Refresh certificate list">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <p class="section-hint">Certificates identified by the Go engine in the <code>certs/</code> directory. Use them with "Straws Engine" rules.</p>
+                <div id="certs-list" class="certs-grid">
+                    <!-- Dynamic cert cards here -->
+                </div>
+            </div>
+        </div>
+        <!-- View: Leaves (Hidden by default) -->
+        <div id="view-leaves" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Active Leaves <span class="count-badge" id="leaf-count">0</span></h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="refresh-leaves-btn" class="btn" title="Refresh leaf inventory">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <p class="section-hint">Inventory of browser tabs and windows currently being monitored. "Pro" version supports remote identifiers.</p>
+                
+                <div id="leaves-inventory" class="leaves-grid">
+                    <!-- Dynamic leaf cards here -->
+                    <div class="insp-empty">
+                        <div class="insp-empty-icon">🍃</div>
+                        <p>Waiting for traffic logic to identify active leaves...</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 

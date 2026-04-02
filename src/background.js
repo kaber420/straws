@@ -175,10 +175,11 @@ let bgState = {
   masterSwitch: true,
   isEngineActive: false,
   isBrowserLogActive: false,
-  isEngineLogActive: false,
+  isEngineLogActive: true,
   isRecordingActive: false,
   remoteEngineUrl: '',
-  nativePort: null
+  nativePort: null,
+  leafRulesApplied: new Set()
 };
 
 function getNativePort() {
@@ -203,6 +204,32 @@ function getNativePort() {
     bgState.nativePort.onMessage.addListener((msg) => {
       if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
         if (bgState.isEngineLogActive) {
+          const url = msg.url || msg.host;
+          const leafHeader = msg.headers?.request?.['X-Straws-Leaf']?.[0];
+          let tabId, windowId, leafTitle;
+          if (leafHeader) {
+            const parts = leafHeader.split('-');
+            windowId = parseInt(parts[0]);
+            tabId = parseInt(parts[1]);
+            const cachedArr = Array.from(tabInfoCache.entries()).find(([id]) => id === tabId);
+            if (cachedArr) leafTitle = cachedArr[1].title;
+          } else {
+            const enriched = urlToTabMap.get(normalizeUrl(url)) || {};
+            tabId = enriched.tabId;
+            windowId = enriched.windowId;
+            leafTitle = enriched.title;
+          }
+
+          let size = msg.size || "-";
+          if (size === "-" && (msg.payload || msg.response)) {
+             const pLen = typeof msg.payload === 'string' ? msg.payload.length : 0;
+             const rLen = typeof msg.response === 'string' ? msg.response.length : 0;
+             const total = pLen + rLen;
+             if (total > 0) {
+               size = (total > 1024) ? (total/1024).toFixed(1) + " KB" : total + " B";
+             }
+          }
+          
           sendLog({
             url: msg.url || msg.host || msg.message || msg.error,
             method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
@@ -211,7 +238,10 @@ function getNativePort() {
             latency: msg.latency || "-",
             from: msg.from || (msg.type === "log" ? "Straws Engine" : "Native"),
             type: msg.type,
-            size: msg.size || "-",
+            size: size,
+            tabId: tabId,
+            windowId: windowId,
+            leafTitle: leafTitle,
             headers: msg.headers || null,
             payload: msg.payload !== undefined && msg.payload !== null ? msg.payload : null,
             response: msg.response !== undefined && msg.response !== null ? msg.response : null,
@@ -349,6 +379,16 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     port.postMessage({ command: "get_certs" });
     return true; // async response
   }
+  if (message.type === 'DELETE_CERT') {
+    const port = getNativePort();
+    if (!port) {
+      sendResponse({ success: false, error: "Engine not connected" });
+      return false;
+    }
+    port.postMessage({ command: "delete_cert", cert_name: message.name });
+    sendResponse({ success: true });
+    return false;
+  }
 });
 
 browser.storage.onChanged.addListener((changes, area) => {
@@ -426,8 +466,47 @@ if (typeof browser.alarms !== 'undefined') {
 // --- NETWORK MONITOR (Observational) ---
 
 const activeRequests = new Map();
+const tabInfoCache = new Map();
+const urlToTabMap = new Map(); 
+
+function normalizeUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    u.hash = ''; // Remove fragment
+    return u.toString().replace(/\/$/, ''); // Remove trailing slash
+  } catch (e) { return url; }
+}
 const logBuffer = [];
 const MAX_BUFFER = 100;
+
+async function getTabInfo(tabId) {
+  if (tabId < 0) return { title: 'Background', url: '', windowId: -1 };
+  if (tabInfoCache.has(tabId)) return tabInfoCache.get(tabId);
+
+  try {
+    const tab = await browser.tabs.get(tabId);
+    const info = { 
+      title: tab.title || 'Untitled', 
+      url: tab.url || '', 
+      windowId: tab.windowId 
+    };
+    tabInfoCache.set(tabId, info);
+    return info;
+  } catch (e) {
+    return { title: 'Unknown Tab', url: '', windowId: -1 };
+  }
+}
+
+// Keep cache clean
+browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.title || changeInfo.url) {
+    tabInfoCache.set(tabId, { title: tab.title || 'Untitled', url: tab.url || '' });
+  }
+});
+browser.tabs.onRemoved.addListener((tabId) => {
+  tabInfoCache.delete(tabId);
+});
 
 // Helper to send logs to UI
 function sendLog(log) {
@@ -446,14 +525,83 @@ function sendLog(log) {
   }).catch(() => { /* No listeners active */ });
 }
 
+async function setupLeafTagging(tabId) {
+  if (tabId < 0 || bgState.leafRulesApplied.has(tabId)) return;
+  
+  try {
+    const tabInfo = await getTabInfo(tabId);
+    const ruleId = tabId + 10000; // Use a high range for auto-generated leaf rules
+    
+    await browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+      addRules: [{
+        id: ruleId,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [{
+            header: 'X-Straws-Leaf',
+            operation: 'set',
+            value: `${tabInfo.windowId}-${tabId}`
+          }]
+        },
+        condition: {
+          tabIds: [tabId],
+          resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+        }
+      }]
+    });
+    bgState.leafRulesApplied.add(tabId);
+  } catch (e) {
+    console.debug(`Could not setup tagging for tab ${tabId}:`, e);
+  }
+}
+
+// Cleanup rules when tab is closed
+browser.tabs.onRemoved.addListener((tabId) => {
+  if (bgState.leafRulesApplied.has(tabId)) {
+    browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [tabId + 10000]
+    });
+    bgState.leafRulesApplied.delete(tabId);
+  }
+  tabInfoCache.delete(tabId);
+});
+
+// Update tagging on new requests or tab updates
+browser.tabs.onUpdated.addListener((tabId) => setupLeafTagging(tabId));
+
 browser.webRequest.onBeforeRequest.addListener(
-  (details) => {
+  async (details) => {
+    if (!bgState.isBrowserLogActive && !bgState.isEngineLogActive) return;
+    
+    // Ensure tagging is active for this tab
+    if (details.tabId >= 0) setupLeafTagging(details.tabId);
+
+    const tabInfo = await getTabInfo(details.tabId);
+    urlToTabMap.set(normalizeUrl(details.url), { 
+      tabId: details.tabId, 
+      windowId: details.windowId, 
+      title: tabInfo.title,
+      time: Date.now()
+    });
+
+    // Cleanup old mappings (older than 1 minute)
+    if (urlToTabMap.size > 500) {
+      const now = Date.now();
+      for (const [url, data] of urlToTabMap.entries()) {
+        if (now - data.time > 60000) urlToTabMap.delete(url);
+      }
+    }
+
     if (!bgState.isBrowserLogActive) return;
     activeRequests.set(details.requestId, {
       startTime: Date.now(),
       url: details.url,
       method: details.method,
-      type: details.type
+      type: details.type,
+      tabId: details.tabId,
+      windowId: details.windowId
     });
   },
   { urls: ["<all_urls>"] }
@@ -491,7 +639,7 @@ browser.webRequest.onResponseStarted.addListener(
 );
 
 browser.webRequest.onCompleted.addListener(
-  (details) => {
+  async (details) => {
     if (!bgState.isBrowserLogActive) return;
     const req = activeRequests.get(details.requestId);
     if (req) {
@@ -516,6 +664,8 @@ browser.webRequest.onCompleted.addListener(
         else if (isStrawProxy) from = 'Straws (Proxy)';
       }
 
+      const tabInfo = await getTabInfo(req.tabId);
+
       sendLog({
         url: req.url,
         method: req.method,
@@ -525,6 +675,9 @@ browser.webRequest.onCompleted.addListener(
         from: from,
         type: req.contentType || 'unknown',
         size: size,
+        tabId: req.tabId,
+        windowId: req.windowId,
+        leafTitle: tabInfo.title,
         headers: {
           request: req.requestHeaders || "Not available in observer mode",
           response: req.responseHeaders || "Not available"
@@ -538,7 +691,7 @@ browser.webRequest.onCompleted.addListener(
 );
 
 browser.webRequest.onErrorOccurred.addListener(
-  (details) => {
+  async (details) => {
     if (!bgState.isBrowserLogActive) return;
     const req = activeRequests.get(details.requestId);
     if (req) {
@@ -550,6 +703,8 @@ browser.webRequest.onErrorOccurred.addListener(
       let from = 'Network';
       if (isStrawProxy) from = 'Straws (Proxy)';
 
+      const tabInfo = await getTabInfo(req.tabId);
+
       sendLog({
         url: req.url,
         method: req.method,
@@ -558,7 +713,10 @@ browser.webRequest.onErrorOccurred.addListener(
         latency: `${Date.now() - req.startTime}ms`,
         from: from,
         type: details.error,
-        size: '-'
+        size: '-',
+        tabId: req.tabId,
+        windowId: req.windowId,
+        leafTitle: tabInfo.title
       });
       activeRequests.delete(details.requestId);
     }
