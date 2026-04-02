@@ -18,6 +18,14 @@ const statusText = statusBadge.querySelector('.status-text');
 const filterInput = document.getElementById('filter-input');
 const logCountBadge = document.getElementById('log-count');
 
+// Modal Elements
+const leafModal = document.getElementById('leaf-modal');
+const closeModalBtn = document.getElementById('close-modal');
+const strobeBtn = document.getElementById('strobe-btn');
+const chaosBtn = document.getElementById('chaos-btn');
+const modalLeafTitle = document.getElementById('modal-leaf-title');
+const modalLeafId = document.getElementById('modal-leaf-id');
+
 // Data Providers (Lego Architecture)
 const provider = {
     onLogMsg: (callback) => {
@@ -58,7 +66,7 @@ const aggregatedStats = {
     statusCounts: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 },
     latencies: [],
     domainStats: {}, // host -> { count, bytes }
-    leaves: new Map() // id -> { title, tabId, windowId, count, bytes, lastSeen, meta: {} }
+    leaves: new Map() // id -> { title, tabId, windowId, count, bytes, lastSeen, meta: {}, latencies: [], statusCounts: {}, domains: {} }
 };
 
 // --- Utilities ---
@@ -149,13 +157,41 @@ function updateMetrics(log) {
                 count: 0,
                 bytes: 0,
                 lastSeen: Date.now(),
-                meta: { os: '', browser: '', lang: '' }
+                meta: { os: '', browser: '', lang: '' },
+                latencies: [],
+                statusCounts: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 },
+                domains: {} // host -> count
             });
         }
         const leaf = aggregatedStats.leaves.get(leafId);
         leaf.count++;
         leaf.lastSeen = Date.now();
         leaf.title = log.leafTitle || leaf.title;
+
+        // Track Latency for Leaf
+        const latMatch = log.latency ? log.latency.match(/([\d\.]+)(ms|s)/) : null;
+        if (latMatch) {
+            let latencyMs = parseFloat(latMatch[1]);
+            if (latMatch[2] === 's') latencyMs *= 1000;
+            leaf.latencies.push(latencyMs);
+            if (leaf.latencies.length > 100) leaf.latencies.shift();
+        }
+
+        // Track Status for Leaf
+        const leafStatus = parseInt(log.status);
+        if (!isNaN(leafStatus)) {
+            if (leafStatus >= 200 && leafStatus < 300) leaf.statusCounts["2xx"]++;
+            else if (leafStatus >= 300 && leafStatus < 400) leaf.statusCounts["3xx"]++;
+            else if (leafStatus >= 400 && leafStatus < 500) leaf.statusCounts["4xx"]++;
+            else if (leafStatus >= 500) leaf.statusCounts["5xx"]++;
+            else leaf.statusCounts["other"]++;
+        }
+
+        // Track Domains for Leaf
+        try {
+            const host = new URL(log.url).hostname;
+            leaf.domains[host] = (leaf.domains[host] || 0) + 1;
+        } catch(e) {}
 
         // Extract metadata from headers if present
         if (log.headers && log.headers.request) {
@@ -174,10 +210,10 @@ function updateMetrics(log) {
         }
 
         // Parse size for leaf
-        const sizeMatch = log.size.match(/([\d\.]+)\s*(KB|MB|B)/i);
-        if (sizeMatch) {
-            let val = parseFloat(sizeMatch[1]);
-            const unit = sizeMatch[2].toUpperCase();
+        const leafSizeMatch = log.size ? log.size.match(/([\d\.]+)\s*(KB|MB|B)/i) : null;
+        if (leafSizeMatch) {
+            let val = parseFloat(leafSizeMatch[1]);
+            const unit = leafSizeMatch[2].toUpperCase();
             if (unit === 'KB') val *= 1024;
             else if (unit === 'MB') val *= 1024 * 1024;
             leaf.bytes += val;
@@ -667,7 +703,133 @@ function renderLeavesInventory() {
             </div>
         `;
     }).join('');
+
+    // Attach click listeners to leaf cards
+    list.querySelectorAll('.leaf-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const id = card.dataset.id;
+            openLeafDiagnostic(id);
+        });
+    });
 }
+
+// --- Leaf Diagnostic Modal Logic ---
+
+let activeDiagnosticId = null;
+
+function openLeafDiagnostic(id) {
+    const leaf = aggregatedStats.leaves.get(id);
+    if (!leaf) return;
+
+    activeDiagnosticId = id;
+    modalLeafTitle.textContent = leaf.title;
+    modalLeafId.textContent = `ID: ${leaf.id} ${leaf.tabId < 0 ? '(System)' : ''}`;
+
+    // Calculate Metrics
+    const avgLat = leaf.latencies.length > 0 
+        ? (leaf.latencies.reduce((a, b) => a + b, 0) / leaf.latencies.length).toFixed(1) + 'ms'
+        : '0ms';
+    
+    const errors = leaf.statusCounts["4xx"] + leaf.statusCounts["5xx"];
+    const errRate = leaf.count > 0 ? (errors / leaf.count * 100).toFixed(1) + '%' : '0%';
+    const mb = (leaf.bytes / (1024 * 1024)).toFixed(2) + ' MB';
+
+    document.getElementById('modal-avg-latency').textContent = avgLat;
+    document.getElementById('modal-error-rate').textContent = errRate;
+    document.getElementById('modal-data-vol').textContent = mb;
+    document.getElementById('modal-total-req').textContent = leaf.count;
+
+    // Render Top Domains
+    const topDomains = Object.entries(leaf.domains)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+    
+    const domainListEl = document.getElementById('modal-top-domains');
+    domainListEl.innerHTML = topDomains.length > 0 
+        ? topDomains.map(([name, count]) => `
+            <div class="domain-row">
+                <span class="domain-name">${name}</span>
+                <span class="domain-count">${count} req</span>
+            </div>
+        `).join('')
+        : '<div class="insp-empty-hint">No domain data yet</div>';
+
+    leafModal.classList.remove('hidden');
+}
+
+function closeLeafModal() {
+    leafModal.classList.add('hidden');
+    activeDiagnosticId = null;
+}
+
+async function strobeLeaf() {
+    if (!activeDiagnosticId) return;
+    const leaf = aggregatedStats.leaves.get(activeDiagnosticId);
+    if (!leaf || leaf.tabId < 0) {
+        alert("Cannot strobe system or background process.");
+        return;
+    }
+
+    try {
+        // 1. Highlight the tab in the browser
+        await browser.tabs.update(leaf.tabId, { active: true });
+        
+        // 2. Inject a visual strobe effect
+        await browser.scripting.executeScript({
+            target: { tabId: leaf.tabId },
+            func: () => {
+                const div = document.createElement('div');
+                div.style.position = 'fixed';
+                div.style.top = '0';
+                div.style.left = '0';
+                div.style.width = '100vw';
+                div.style.height = '100vh';
+                div.style.backgroundColor = 'rgba(255, 0, 0, 0.4)';
+                div.style.zIndex = '999999';
+                div.style.pointerEvents = 'none';
+                div.style.animation = 'strobe-blink 0.2s 10';
+                
+                const style = document.createElement('style');
+                style.textContent = '@keyframes strobe-blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }';
+                document.head.appendChild(style);
+                document.body.appendChild(div);
+                
+                setTimeout(() => {
+                    div.remove();
+                    style.remove();
+                }, 2000);
+            }
+        });
+    } catch (e) {
+        console.error("Strobe failed:", e);
+        // Fallback: just highlight
+        browser.tabs.highlight({ tabs: leaf.tabId, windowId: leaf.windowId });
+    }
+}
+
+function toggleLeafChaos() {
+    if (!activeDiagnosticId) return;
+    const leaf = aggregatedStats.leaves.get(activeDiagnosticId);
+    
+    // In "Normal" version, we simulate chaos locally in the dashboard state
+    // In "Pro" version, this would send a message to the engine.
+    const isChaos = chaosBtn.classList.toggle('active');
+    chaosBtn.innerHTML = isChaos 
+        ? `<span class="icon">🌀</span> Chaos Active`
+        : `<span class="icon">🌀</span> Toggle Local Chaos`;
+    
+    if (isChaos) {
+        alert(`Local Chaos simulated for leaf ${leaf.title}. Requests from this tab will now show artificial latency in traces.`);
+    }
+}
+
+// Modal Event Listeners
+closeModalBtn.addEventListener('click', closeLeafModal);
+leafModal.addEventListener('click', (e) => {
+    if (e.target === leafModal) closeLeafModal();
+});
+strobeBtn.addEventListener('click', strobeLeaf);
+chaosBtn.addEventListener('click', toggleLeafChaos);
 
 const refreshLeavesBtn = document.getElementById('refresh-leaves-btn');
 if (refreshLeavesBtn) {

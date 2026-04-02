@@ -234,5 +234,69 @@
         </div>
     </article>
 
+
+    <!-- 4. Leaf Diagnostic Modal [NEW] -->
+    <div id="leaf-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">🍃</span>
+                    <div class="modal-titles">
+                        <h2 id="modal-leaf-title">Leaf Diagnostics</h2>
+                        <span id="modal-leaf-id" class="modal-subtitle">ID: unknown</span>
+                    </div>
+                </div>
+                <button id="close-modal" class="btn-close">&times;</button>
+            </header>
+            
+            <div class="modal-body">
+                <div class="modal-grid">
+                    <!-- Stats Column -->
+                    <div class="modal-stats-col">
+                        <div class="m-detail-card">
+                            <span class="m-label">Avg Latency</span>
+                            <span class="m-value" id="modal-avg-latency">0ms</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Error Rate</span>
+                            <span class="m-value" id="modal-error-rate">0%</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Data Vol.</span>
+                            <span class="m-value" id="modal-data-vol">0 MB</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Total Requests</span>
+                            <span class="m-value" id="modal-total-req">0</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Analysis Column -->
+                    <div class="modal-analysis-col">
+                        <div class="analysis-section">
+                            <h4>Top Domains</h4>
+                            <div id="modal-top-domains" class="domain-list">
+                                <!-- Dynamic domain list -->
+                            </div>
+                        </div>
+                        <div class="analysis-section">
+                            <h4>Action Center</h4>
+                            <div class="action-grid">
+                                <button id="strobe-btn" class="btn btn-alert">
+                                    <span class="icon">🚨</span> Ping Leaf (Strobe)
+                                </button>
+                                <button id="chaos-btn" class="btn btn-warning">
+                                    <span class="icon">🌀</span> Toggle Local Chaos
+                                </button>
+                                <button id="compare-btn" class="btn">
+                                    <span class="icon">⚖️</span> Compare
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
