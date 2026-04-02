@@ -17,7 +17,9 @@
     "webRequest",
     "proxy",
     "alarms",
-    "nativeMessaging"
+    "nativeMessaging",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"

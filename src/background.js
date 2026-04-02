@@ -179,7 +179,8 @@ let bgState = {
   isRecordingActive: false,
   remoteEngineUrl: '',
   nativePort: null,
-  leafRulesApplied: new Set()
+  leafRulesApplied: new Set(),
+  leafChaosModes: new Map() // tabId -> mode (latency, jitter, drop, error)
 };
 
 function getNativePort() {
@@ -205,19 +206,33 @@ function getNativePort() {
       if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
         if (bgState.isEngineLogActive) {
           const url = msg.url || msg.host;
-          const leafHeader = msg.headers?.request?.['X-Straws-Leaf']?.[0];
+          const reqHeaders = msg.headers?.request || {};
+          let rawLeafHeader = reqHeaders['X-Straws-Leaf'] || 
+                              reqHeaders['x-straws-leaf'] || 
+                              reqHeaders['X-STRAWS-LEAF'];
+          
+          let leafHeader = Array.isArray(rawLeafHeader) ? rawLeafHeader[0] : rawLeafHeader;
+
           let tabId, windowId, leafTitle;
-          if (leafHeader) {
+          if (leafHeader && typeof leafHeader === 'string') {
             const parts = leafHeader.split('-');
-            windowId = parseInt(parts[0]);
-            tabId = parseInt(parts[1]);
+            // Support both "win-tab" and "tab" formats
+            tabId = parseInt(parts[parts.length - 1]);
+            windowId = parts.length > 1 ? parseInt(parts[0]) : null;
+
+            // If windowId is missing or -1, try to restore from cache
+            if (windowId === null || windowId === -1 || isNaN(windowId)) {
+              const cached = tabInfoCache.get(tabId);
+              if (cached && cached.windowId !== -1) windowId = cached.windowId;
+            }
+            
             const cachedArr = Array.from(tabInfoCache.entries()).find(([id]) => id === tabId);
             if (cachedArr) leafTitle = cachedArr[1].title;
           } else {
             const enriched = urlToTabMap.get(normalizeUrl(url)) || {};
-            tabId = enriched.tabId;
-            windowId = enriched.windowId;
-            leafTitle = enriched.title;
+            tabId = enriched.tabId !== undefined ? enriched.tabId : -1;
+            windowId = (enriched.windowId !== undefined && enriched.windowId !== -1) ? enriched.windowId : null;
+            leafTitle = enriched.title || 'System';
           }
 
           let size = msg.size || "-";
@@ -389,7 +404,34 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return false;
   }
+  if (message.type === 'SET_LEAF_CHAOS') {
+    const { tabId, mode } = message;
+    if (mode) {
+      bgState.leafChaosModes.set(tabId, mode);
+    } else {
+      bgState.leafChaosModes.delete(tabId);
+    }
+    // Refresh tagging to apply/remove chaos header
+    setupLeafTagging(tabId, true);
+    sendResponse({ success: true });
+    return false;
+  }
+  if (message.type === 'REFRESH_TAGS') {
+    refreshAllLeafTagging();
+    sendResponse({ success: true });
+    return false;
+  }
 });
+
+async function refreshAllLeafTagging() {
+  const tabs = await browser.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.id >= 0) {
+      await setupLeafTagging(tab.id, true);
+    }
+  }
+  console.log(`[Identity] Refreshed tagging for ${tabs.length} tabs.`);
+}
 
 browser.storage.onChanged.addListener((changes, area) => {
   if (area === 'local') {
@@ -452,6 +494,9 @@ browser.storage.local.get(['isBrowserLogActive', 'isEngineLogActive', 'isEngineA
   bgState.remoteEngineUrl = data.remoteEngineUrl || '';
   if (bgState.isEngineActive) getNativePort();
   if (bgState.isEngineLogActive) syncLoggingToEngine(true);
+  
+  // Initial Tab Identity Sync
+  syncTabCache();
 });
 
 // Alarms (auto-off Live Log)
@@ -489,23 +534,92 @@ async function getTabInfo(tabId) {
     const info = { 
       title: tab.title || 'Untitled', 
       url: tab.url || '', 
-      windowId: tab.windowId 
+      windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
     };
     tabInfoCache.set(tabId, info);
     return info;
   } catch (e) {
-    return { title: 'Unknown Tab', url: '', windowId: -1 };
+    // Fallback: try to find the tab by ID in all windows if get fails
+    try {
+      const tabs = await browser.tabs.query({});
+      const tab = tabs.find(t => t.id === tabId);
+      if (tab) {
+        const info = {
+          title: tab.title || 'Untitled',
+          url: tab.url || '',
+          windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
+        };
+        tabInfoCache.set(tabId, info);
+        return info;
+      }
+    } catch (e2) {}
+    return { title: 'Detached Tab', url: '', windowId: null };
   }
 }
 
-// Keep cache clean
+// Robust Identity Cache Management
+async function syncTabCache() {
+  try {
+    const tabs = await browser.tabs.query({});
+    tabInfoCache.clear();
+    for (const tab of tabs) {
+      tabInfoCache.set(tab.id, {
+        title: tab.title || 'Untitled',
+        url: tab.url || '',
+        windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : -1
+      });
+      if (tab.id >= 0) setupLeafTagging(tab.id);
+    }
+    console.log(`[Identity] Sync complete. Tracking ${tabInfoCache.size} tabs.`);
+  } catch (e) {
+    console.error("[Identity] Failed to sync tabs:", e);
+  }
+}
+
+// Event Listeners for Identity Changes
+browser.tabs.onCreated.addListener(async (tab) => {
+  tabInfoCache.set(tab.id, {
+    title: tab.title || 'Untitled',
+    url: tab.url || '',
+    windowId: tab.windowId
+  });
+  setupLeafTagging(tab.id);
+});
+
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.title || changeInfo.url) {
-    tabInfoCache.set(tabId, { title: tab.title || 'Untitled', url: tab.url || '' });
+  if (changeInfo.title || changeInfo.url || changeInfo.status === 'complete') {
+    tabInfoCache.set(tabId, {
+      title: tab.title || 'Untitled',
+      url: tab.url || '',
+      windowId: tab.windowId
+    });
+    setupLeafTagging(tabId, true);
   }
 });
+
+browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
+  const tab = await browser.tabs.get(tabId);
+  tabInfoCache.set(tabId, {
+    title: tab.title || 'Untitled',
+    url: tab.url || '',
+    windowId: attachInfo.newWindowId
+  });
+  console.log(`[Identity] Tab ${tabId} moved to window ${attachInfo.newWindowId}`);
+  setupLeafTagging(tabId, true);
+});
+
+browser.tabs.onActivated.addListener(async (activeInfo) => {
+  setupLeafTagging(activeInfo.tabId, true);
+});
+
 browser.tabs.onRemoved.addListener((tabId) => {
   tabInfoCache.delete(tabId);
+  if (bgState.leafRulesApplied.has(tabId)) {
+    browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [tabId + 10000]
+    });
+    bgState.leafRulesApplied.delete(tabId);
+  }
 });
 
 // Helper to send logs to UI
@@ -525,13 +639,39 @@ function sendLog(log) {
   }).catch(() => { /* No listeners active */ });
 }
 
-async function setupLeafTagging(tabId) {
-  if (tabId < 0 || bgState.leafRulesApplied.has(tabId)) return;
+async function setupLeafTagging(tabId, force = false) {
+  if (tabId < 0 || (bgState.leafRulesApplied.has(tabId) && !force)) return;
   
   try {
     const tabInfo = await getTabInfo(tabId);
-    const ruleId = tabId + 10000; // Use a high range for auto-generated leaf rules
+    let winId = (tabInfo.windowId !== undefined && tabInfo.windowId !== null) ? tabInfo.windowId : -1;
     
+    // Identity verification (No more fallbacks)
+    if (winId === -1 || winId === null) {
+       const tab = await browser.tabs.get(tabId).catch(() => null);
+       if (tab && tab.windowId !== undefined) {
+         winId = tab.windowId;
+         tabInfoCache.set(tabId, { ...tabInfo, windowId: winId });
+       }
+    }
+
+    const ruleId = tabId + 10000; 
+    
+    const chaosMode = bgState.leafChaosModes.get(tabId);
+    const headers = [{
+      header: 'X-Straws-Leaf',
+      operation: 'set',
+      value: `${winId}-${tabId}`
+    }];
+
+    if (chaosMode) {
+      headers.push({
+        header: 'X-Straws-Chaos',
+        operation: 'set',
+        value: chaosMode
+      });
+    }
+
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds: [ruleId],
       addRules: [{
@@ -539,11 +679,7 @@ async function setupLeafTagging(tabId) {
         priority: 1,
         action: {
           type: 'modifyHeaders',
-          requestHeaders: [{
-            header: 'X-Straws-Leaf',
-            operation: 'set',
-            value: `${tabInfo.windowId}-${tabId}`
-          }]
+          requestHeaders: headers
         },
         condition: {
           tabIds: [tabId],
@@ -565,11 +701,10 @@ browser.tabs.onRemoved.addListener((tabId) => {
     });
     bgState.leafRulesApplied.delete(tabId);
   }
-  tabInfoCache.delete(tabId);
+  // Delayed removal from tabInfoCache is handled by the primary onRemoved listener
 });
 
-// Update tagging on new requests or tab updates
-browser.tabs.onUpdated.addListener((tabId) => setupLeafTagging(tabId));
+// Update tagging on new requests or tab updates handled by event listeners
 
 browser.webRequest.onBeforeRequest.addListener(
   async (details) => {

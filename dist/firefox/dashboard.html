@@ -269,6 +269,9 @@
                             <span class="m-label">Total Requests</span>
                             <span class="m-value" id="modal-total-req">0</span>
                         </div>
+                        <div id="chaos-status-indicator" class="chaos-active-hint hidden">
+                            <span class="pulse">🌀</span> Chaos Active
+                        </div>
                     </div>
                     
                     <!-- Analysis Column -->
@@ -280,17 +283,32 @@
                             </div>
                         </div>
                         <div class="analysis-section">
-                            <h4>Action Center</h4>
+                            <h4>Cyber-Laboratory (Chaos & Alerts)</h4>
                             <div class="action-grid">
-                                <button id="strobe-btn" class="btn btn-alert">
-                                    <span class="icon">🚨</span> Ping Leaf (Strobe)
+                                <button id="strobe-btn" class="btn btn-alert full-width">
+                                    <span class="icon">🚨</span> Ping Leaf (Visual Strobe)
                                 </button>
-                                <button id="chaos-btn" class="btn btn-warning">
-                                    <span class="icon">🌀</span> Toggle Local Chaos
-                                </button>
-                                <button id="compare-btn" class="btn">
-                                    <span class="icon">⚖️</span> Compare
-                                </button>
+                                
+                                <div class="chaos-selectors">
+                                    <div class="selector-title">Simulation Modes</div>
+                                    <div class="chaos-buttons">
+                                        <button class="chaos-mode-btn" data-mode="latency" title="Add 500ms delay">
+                                            <span class="icon">⏲️</span> Latency
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="jitter" title="Random delay 0-1s">
+                                            <span class="icon">🎲</span> Jitter
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="drop" title="Force 10% drops">
+                                            <span class="icon">✂️</span> Drop
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="error" title="Inject 5% Error 500">
+                                            <span class="icon">🔥</span> Error
+                                        </button>
+                                    </div>
+                                    <button id="clear-chaos-btn" class="btn btn-small btn-warning full-width" style="margin-top: 8px;">
+                                        Reset All Simulation
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

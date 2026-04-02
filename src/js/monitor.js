@@ -80,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="detail-row"><span class="label">From:</span>${log.from}</div>
 <div class="detail-row"><span class="label">Method:</span>${log.method}</div>
 <div class="detail-row"><span class="label">URL:</span>${log.url}</div>
+<div class="detail-row"><span class="label">ID:</span>${(log.windowId !== null && log.windowId !== -1) ? log.windowId : '?'}-${log.tabId}</div>
 <div class="detail-row"><span class="label">Status:</span>${log.status}</div>
 <div class="detail-row"><span class="label">Latency:</span>${log.latency}</div>
 <div class="detail-row"><span class="label">IP:</span>${log.ip}</div>

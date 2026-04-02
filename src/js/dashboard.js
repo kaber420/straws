@@ -25,6 +25,8 @@ const strobeBtn = document.getElementById('strobe-btn');
 const chaosBtn = document.getElementById('chaos-btn');
 const modalLeafTitle = document.getElementById('modal-leaf-title');
 const modalLeafId = document.getElementById('modal-leaf-id');
+const chaosStatusIndicator = document.getElementById('chaos-status-indicator');
+const clearChaosBtn = document.getElementById('clear-chaos-btn');
 
 // Data Providers (Lego Architecture)
 const provider = {
@@ -66,7 +68,8 @@ const aggregatedStats = {
     statusCounts: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 },
     latencies: [],
     domainStats: {}, // host -> { count, bytes }
-    leaves: new Map() // id -> { title, tabId, windowId, count, bytes, lastSeen, meta: {}, latencies: [], statusCounts: {}, domains: {} }
+    leaves: new Map(), // id -> { ..., chaosMode: null }
+    activeSimulations: new Set()
 };
 
 // --- Utilities ---
@@ -90,6 +93,16 @@ function parseUA(ua) {
     const version = versionMatch ? versionMatch[2].split('.')[0] : '';
 
     return { os, browser, version: version ? `${browser} ${version}` : browser };
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (isNaN(bytes)) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 // --- Logic ---
@@ -146,8 +159,9 @@ function updateMetrics(log) {
     } catch(e) {}
 
     // Leaf stats
-    if (log.tabId !== undefined) {
-        const leafId = `${log.windowId}-${log.tabId}`;
+    if (log.tabId !== undefined && log.tabId !== null && log.tabId >= 0) {
+        const winId = (log.windowId !== undefined && log.windowId !== null) ? log.windowId : -1;
+        const leafId = `${winId}-${log.tabId}`;
         if (!aggregatedStats.leaves.has(leafId)) {
             aggregatedStats.leaves.set(leafId, {
                 id: leafId,
@@ -160,7 +174,8 @@ function updateMetrics(log) {
                 meta: { os: '', browser: '', lang: '' },
                 latencies: [],
                 statusCounts: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 },
-                domains: {} // host -> count
+                domains: {}, // host -> count
+                chaosMode: null
             });
         }
         const leaf = aggregatedStats.leaves.get(leafId);
@@ -356,7 +371,9 @@ function selectRow(id) {
     
     const sourceText = document.getElementById('source-text');
     if (sourceText) {
-        sourceText.textContent = (log.from === "Straws Engine") ? "Straws Engine" : (log.from || "Browser Extension");
+        const winIdStr = (log.windowId !== null && log.windowId !== -1) ? log.windowId : '?';
+        const idStr = (log.tabId !== undefined && log.tabId !== -1) ? ` [ID: ${winIdStr}-${log.tabId}]` : '';
+        sourceText.textContent = ((log.from === "Straws Engine") ? "Straws Engine" : (log.from || "Extension")) + idStr;
     }
 
     headerData.innerHTML = renderHeaders(log.headers);
@@ -672,17 +689,17 @@ function renderLeavesInventory() {
         .sort((a, b) => b.lastSeen - a.lastSeen);
 
     list.innerHTML = sortedLeaves.map(leaf => {
-        const mb = (leaf.bytes / (1024 * 1024)).toFixed(2);
+        const displayTitle = leaf.title || 'Untitled Session';
         const isBackground = leaf.tabId < 0;
-        
+
         return `
             <div class="leaf-card" data-id="${leaf.id}">
                 ${leaf.id.includes('multi') ? '<span class="leaf-pro-badge">PRO</span>' : ''}
                 <div class="leaf-header">
                     <div class="leaf-icon">${isBackground ? '⚙️' : '📑'}</div>
                     <div class="leaf-meta">
-                        <span class="leaf-title" title="${leaf.title}">${leaf.title}</span>
-                        <span class="leaf-id">ID: ${leaf.id} ${isBackground ? '(System)' : ''}</span>
+                        <span class="leaf-title" title="${displayTitle}">${displayTitle}</span>
+                        <span class="leaf-id">ID: ${leaf.windowId !== null && leaf.windowId !== -1 ? leaf.windowId : '?'}-${leaf.tabId}</span>
                     </div>
                 </div>
                 <div class="leaf-meta-row">
@@ -697,7 +714,7 @@ function renderLeavesInventory() {
                     </div>
                     <div class="l-stat">
                         <span class="l-stat-label">Data</span>
-                        <span class="l-stat-value">${mb} MB</span>
+                        <span class="l-stat-value">${formatBytes(leaf.bytes)}</span>
                     </div>
                 </div>
             </div>
@@ -718,12 +735,14 @@ function renderLeavesInventory() {
 let activeDiagnosticId = null;
 
 function openLeafDiagnostic(id) {
-    const leaf = aggregatedStats.leaves.get(id);
-    if (!leaf) return;
+    try {
+        const leaf = aggregatedStats.leaves.get(id);
+        if (!leaf) return;
 
-    activeDiagnosticId = id;
-    modalLeafTitle.textContent = leaf.title;
-    modalLeafId.textContent = `ID: ${leaf.id} ${leaf.tabId < 0 ? '(System)' : ''}`;
+        activeDiagnosticId = id;
+        const winIdStr = (leaf.windowId !== null && leaf.windowId !== -1) ? leaf.windowId : '?';
+        modalLeafTitle.textContent = leaf.title || 'Untitled Session';
+        modalLeafId.textContent = `ID: ${winIdStr}-${leaf.tabId}`;
 
     // Calculate Metrics
     const avgLat = leaf.latencies.length > 0 
@@ -732,12 +751,14 @@ function openLeafDiagnostic(id) {
     
     const errors = leaf.statusCounts["4xx"] + leaf.statusCounts["5xx"];
     const errRate = leaf.count > 0 ? (errors / leaf.count * 100).toFixed(1) + '%' : '0%';
-    const mb = (leaf.bytes / (1024 * 1024)).toFixed(2) + ' MB';
 
     document.getElementById('modal-avg-latency').textContent = avgLat;
     document.getElementById('modal-error-rate').textContent = errRate;
-    document.getElementById('modal-data-vol').textContent = mb;
+    document.getElementById('modal-data-vol').textContent = formatBytes(leaf.bytes);
     document.getElementById('modal-total-req').textContent = leaf.count;
+
+    // Update Chaos Buttons UI
+    updateChaosUI(leaf.chaosMode);
 
     // Render Top Domains
     const topDomains = Object.entries(leaf.domains)
@@ -754,7 +775,11 @@ function openLeafDiagnostic(id) {
         `).join('')
         : '<div class="insp-empty-hint">No domain data yet</div>';
 
-    leafModal.classList.remove('hidden');
+        if (leafModal) leafModal.classList.remove('hidden');
+    } catch (e) {
+        console.error("Failed to open diagnostic modal:", e);
+        if (leafModal) leafModal.classList.remove('hidden');
+    }
 }
 
 function closeLeafModal() {
@@ -807,19 +832,64 @@ async function strobeLeaf() {
     }
 }
 
-function toggleLeafChaos() {
+function updateChaosUI(activeMode) {
+    document.querySelectorAll('.chaos-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === activeMode);
+    });
+    
+    const indicator = document.getElementById('chaos-status-indicator');
+    if (!indicator) return;
+
+    if (activeMode) {
+        indicator.classList.remove('hidden');
+        const pulse = indicator.querySelector('.pulse');
+        if (pulse) pulse.textContent = getChaosIcon(activeMode);
+    } else {
+        indicator.classList.add('hidden');
+    }
+}
+
+function getChaosIcon(mode) {
+    if (mode === 'latency') return '⏲️';
+    if (mode === 'jitter') return '🎲';
+    if (mode === 'drop') return '✂️';
+    if (mode === 'error') return '🔥';
+    return '🌀';
+}
+
+function setLeafChaos(mode) {
     if (!activeDiagnosticId) return;
     const leaf = aggregatedStats.leaves.get(activeDiagnosticId);
+    if (!leaf) return;
+
+    // Toggle logic
+    if (leaf.chaosMode === mode) {
+        leaf.chaosMode = null;
+    } else {
+        leaf.chaosMode = mode;
+    }
+
+    updateChaosUI(leaf.chaosMode);
     
-    // In "Normal" version, we simulate chaos locally in the dashboard state
-    // In "Pro" version, this would send a message to the engine.
-    const isChaos = chaosBtn.classList.toggle('active');
-    chaosBtn.innerHTML = isChaos 
-        ? `<span class="icon">🌀</span> Chaos Active`
-        : `<span class="icon">🌀</span> Toggle Local Chaos`;
+    // In "Normal" version, we notify the engine or background
+    browser.runtime.sendMessage({ 
+        type: 'SET_LEAF_CHAOS', 
+        tabId: leaf.tabId, 
+        mode: leaf.chaosMode 
+    }).catch(() => {});
     
-    if (isChaos) {
-        alert(`Local Chaos simulated for leaf ${leaf.title}. Requests from this tab will now show artificial latency in traces.`);
+    if (leaf.chaosMode) {
+        console.log(`[Laboratory] Chaos Mode ${mode} enabled for leaf ${leaf.title}`);
+    }
+}
+
+function resetAllSimulations() {
+    if (!activeDiagnosticId) return;
+    const leaf = aggregatedStats.leaves.get(activeDiagnosticId);
+    if (leaf) {
+        leaf.chaosMode = null;
+        updateChaosUI(null);
+        browser.runtime.sendMessage({ type: 'SET_LEAF_CHAOS', tabId: leaf.tabId, mode: null }).catch(() => {});
     }
 }
 
@@ -828,10 +898,21 @@ closeModalBtn.addEventListener('click', closeLeafModal);
 leafModal.addEventListener('click', (e) => {
     if (e.target === leafModal) closeLeafModal();
 });
+
 strobeBtn.addEventListener('click', strobeLeaf);
-chaosBtn.addEventListener('click', toggleLeafChaos);
+
+document.querySelectorAll('.chaos-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => setLeafChaos(btn.dataset.mode));
+});
+
+if (clearChaosBtn) {
+    clearChaosBtn.addEventListener('click', resetAllSimulations);
+}
 
 const refreshLeavesBtn = document.getElementById('refresh-leaves-btn');
 if (refreshLeavesBtn) {
     refreshLeavesBtn.addEventListener('click', renderLeavesInventory);
 }
+
+// Proactive refresh on startup
+browser.runtime.sendMessage({ type: 'REFRESH_TAGS' }).catch(() => {});
