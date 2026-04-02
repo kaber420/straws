@@ -890,3 +890,36 @@ td {
     border-radius: 4px;
     letter-spacing: 0.05em;
 }
+
+/* --- Metadata Badges --- */
+.leaf-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.l-badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-os {
+    border-color: var(--accent-indigo);
+    color: var(--accent-indigo);
+}
+
+.badge-browser {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+.badge-lang {
+    opacity: 0.8;
+}

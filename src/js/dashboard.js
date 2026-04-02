@@ -58,8 +58,31 @@ const aggregatedStats = {
     statusCounts: { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 },
     latencies: [],
     domainStats: {}, // host -> { count, bytes }
-    leaves: new Map() // id -> { title, tabId, windowId, count, bytes, lastSeen }
+    leaves: new Map() // id -> { title, tabId, windowId, count, bytes, lastSeen, meta: {} }
 };
+
+// --- Utilities ---
+function parseUA(ua) {
+    if (!ua) return { os: 'Unknown OS', browser: 'Unknown Browser' };
+    
+    let os = 'Unknown OS';
+    if (ua.includes('Win')) os = 'Windows';
+    else if (ua.includes('Mac')) os = 'macOS';
+    else if (ua.includes('Linux')) os = 'Linux';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('like Mac')) os = 'iOS';
+
+    let browser = 'Unknown Browser';
+    if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Chrome')) browser = 'Chrome';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+    else if (ua.includes('Edge')) browser = 'Edge';
+    
+    const versionMatch = ua.match(/(Firefox|Chrome|Safari|Edge)\/([\d\.]+)/);
+    const version = versionMatch ? versionMatch[2].split('.')[0] : '';
+
+    return { os, browser, version: version ? `${browser} ${version}` : browser };
+}
 
 // --- Logic ---
 
@@ -125,13 +148,30 @@ function updateMetrics(log) {
                 title: log.leafTitle || 'Untitled',
                 count: 0,
                 bytes: 0,
-                lastSeen: Date.now()
+                lastSeen: Date.now(),
+                meta: { os: '', browser: '', lang: '' }
             });
         }
         const leaf = aggregatedStats.leaves.get(leafId);
         leaf.count++;
         leaf.lastSeen = Date.now();
         leaf.title = log.leafTitle || leaf.title;
+
+        // Extract metadata from headers if present
+        if (log.headers && log.headers.request) {
+            const req = log.headers.request;
+            const uaHeader = req['User-Agent'] || req['user-agent'];
+            const langHeader = req['Accept-Language'] || req['accept-language'];
+
+            if (uaHeader) {
+                const info = parseUA(Array.isArray(uaHeader) ? uaHeader[0] : uaHeader);
+                leaf.meta.os = info.os;
+                leaf.meta.browser = info.version;
+            }
+            if (langHeader) {
+                leaf.meta.lang = (Array.isArray(langHeader) ? langHeader[0] : langHeader).split(',')[0];
+            }
+        }
 
         // Parse size for leaf
         const sizeMatch = log.size.match(/([\d\.]+)\s*(KB|MB|B)/i);
@@ -608,6 +648,11 @@ function renderLeavesInventory() {
                         <span class="leaf-title" title="${leaf.title}">${leaf.title}</span>
                         <span class="leaf-id">ID: ${leaf.id} ${isBackground ? '(System)' : ''}</span>
                     </div>
+                </div>
+                <div class="leaf-meta-row">
+                    ${leaf.meta.os ? `<span class="l-badge badge-os">${leaf.meta.os}</span>` : ''}
+                    ${leaf.meta.browser ? `<span class="l-badge badge-browser">${leaf.meta.browser}</span>` : ''}
+                    ${leaf.meta.lang ? `<span class="l-badge badge-lang">${leaf.meta.lang}</span>` : ''}
                 </div>
                 <div class="leaf-stats">
                     <div class="l-stat">
