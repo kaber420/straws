@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Straws</title>
   <script type="module" crossorigin src="/sidepanel.js"></script>
+  <link rel="modulepreload" crossorigin href="/browser-polyfill.js">
   <link rel="stylesheet" crossorigin href="/sidepanel.css">
 </head>
 
@@ -31,6 +32,7 @@
               <span class="slider round"></span>
             </label>
           </label>
+          <button id="settings-btn" class="btn-icon header-btn" title="Settings">⚙️</button>
         </div>
       </div>
     </header>
@@ -54,10 +56,17 @@
     <section class="terminal-section">
       <div class="terminal-header">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span>Real-time Logs</span>
-          <button id="toggle-livelog-btn" class="btn" style="padding: 2px 8px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-light); background: var(--bg-surface); cursor: pointer; color: var(--text-main);">▶ Start (5m)</button>
+          <span>Engine Events</span>
+          <label class="switch mini">
+            <input type="checkbox" id="engine-log-switch">
+            <span class="slider round"></span>
+          </label>
+          <span class="help-text" style="font-size: 0.7rem; color: var(--text-muted);">Short-lived notification stream</span>
         </div>
-        <button id="clear-logs-btn" class="btn-icon" title="Clear Logs">🗑️</button>
+        <div style="display: flex; gap: 5px;">
+          <button id="open-dashboard-btn" class="btn primary" style="padding: 2px 8px; font-size: 0.75rem;">Open Dashboard 📊</button>
+          <button id="clear-logs-btn" class="btn-icon" title="Clear Logs">🗑️</button>
+        </div>
       </div>
       <div class="terminal-body">
         <div class="terminal-window" id="terminal-output">
@@ -80,28 +89,6 @@
 
     <!-- Add/Edit Modal -->
     <div id="rule-modal" class="modal hidden">
-      <!-- ... -->
-    </div>
-
-    <!-- Headers & Secrets Modal -->
-    <div id="headers-modal" class="modal hidden">
-      <div class="modal-content glass">
-        <h3>Headers & Keys</h3>
-        <p class="help-text">Configure secure credentials for this Straw.</p>
-        <form id="headers-form">
-          <input type="hidden" id="header-rule-id">
-          <div class="form-group">
-            <label for="header-list">Custom Headers</label>
-            <textarea id="header-list" placeholder="Authorization: Bearer my-token" rows="4" style="font-family: var(--font-mono); font-size: 0.8rem;"></textarea>
-            <span class="help-text">One per line. Key: Value</span>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn secondary" id="cancel-headers-btn">Cancel</button>
-            <button type="submit" class="btn primary">Save Keys</button>
-          </div>
-        </form>
-      </div>
-    </div>
       <div class="modal-content glass">
         <h3 id="modal-title">Add Rule</h3>
         <form id="rule-form">
@@ -166,8 +153,60 @@
         </form>
       </div>
     </div>
-  </div>
 
+    <!-- Headers & Secrets Modal -->
+    <div id="headers-modal" class="modal hidden">
+      <div class="modal-content glass">
+        <h3>Headers & Keys</h3>
+        <p class="help-text">Configure secure credentials for this Straw.</p>
+        <form id="headers-form">
+          <input type="hidden" id="header-rule-id">
+          <div class="form-group">
+            <label for="header-list">Custom Headers</label>
+            <textarea id="header-list" placeholder="Authorization: Bearer my-token" rows="4"
+              style="font-family: var(--font-mono); font-size: 0.8rem; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.5rem;"></textarea>
+            <span class="help-text">One per line. Key: Value</span>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" id="cancel-headers-btn">Cancel</button>
+            <button type="submit" class="btn primary">Save Keys</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Global Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-content glass">
+        <h3>Global Settings</h3>
+        <form id="settings-form">
+          <div class="form-group">
+            <label for="remote-engine-url">Remote Engine URL</label>
+            <input type="text" id="remote-engine-url" placeholder="e.g. 192.168.1.50:5782">
+            <span class="help-text">Leave empty for local engine (Native)</span>
+          </div>
+          <div class="form-group">
+            <label for="master-key">Master Key / Auth Token</label>
+            <input type="password" id="master-key" placeholder="••••••••••••••••">
+            <span class="help-text">Used for remote controller authentication</span>
+          </div>
+          <div class="form-group">
+            <label for="global-presets">Presets</label>
+            <div id="presets-list"
+              style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 150px; overflow-y: auto;">
+              <!-- Presets injected here -->
+              <div class="help-text">No presets saved.</div>
+            </div>
+          </div>
+          <button type="button" id="save-current-preset" class="btn secondary"
+            style="width: 100%; margin-top: 0.5rem;">Save Current as Preset</button>
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" id="close-settings-btn">Close</button>
+            <button type="submit" class="btn primary">Save Config</button>
+          </div>
+        </form>
+      </div>
+    </div>
 </body>
 
 </html>

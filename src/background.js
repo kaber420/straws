@@ -100,10 +100,10 @@ async function syncRules() {
   const removeRuleIds = [];
 
   // Rules that should be active for DNR
-  const activeRulesInStorage = Object.values(rulesObj).filter(r => 
+  const activeRulesInStorage = Object.values(rulesObj).filter(r =>
     r.active && r.source && masterSwitch && (r.type === 'redirect' || r.type === 'block' || !r.type)
   );
-  
+
   const allGeneratedNodes = activeRulesInStorage.flatMap(r => rulesToNodes(r));
   const activeNodeIds = new Set(allGeneratedNodes.map(n => n.id));
 
@@ -123,7 +123,7 @@ async function syncRules() {
     } else {
       // Check for changes
       const hasChanged = JSON.stringify(existingRule.condition) !== JSON.stringify(node.condition) ||
-                         JSON.stringify(existingRule.action) !== JSON.stringify(node.action);
+        JSON.stringify(existingRule.action) !== JSON.stringify(node.action);
       if (hasChanged) {
         removeRuleIds.push(node.id);
         addRules.push(node);
@@ -141,7 +141,7 @@ async function syncRules() {
 
   // Update Proxy Settings (Phase 3)
   await updateProxySettings(rulesObj, masterSwitch);
-  
+
   // Sync rules to Engine (Phase 4)
   if (bgState.isEngineActive) {
     syncRulesToEngine(rulesObj, masterSwitch);
@@ -174,7 +174,10 @@ let bgState = {
   rules: {},
   masterSwitch: true,
   isEngineActive: false,
-  isLiveLogActive: false,
+  isBrowserLogActive: false,
+  isEngineLogActive: false,
+  isRecordingActive: false,
+  remoteEngineUrl: '',
   nativePort: null
 };
 
@@ -186,9 +189,9 @@ function getNativePort() {
     }
     return null;
   }
-  
+
   if (bgState.nativePort) return bgState.nativePort;
-  
+
   try {
     console.log("Connecting to Straws Engine...");
     bgState.nativePort = browser.runtime.connectNative("com.kaber420.straws.core");
@@ -198,17 +201,23 @@ function getNativePort() {
     });
 
     bgState.nativePort.onMessage.addListener((msg) => {
-      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error") {
-        sendLog({
-          url: msg.host || msg.message || msg.error,
-          method: msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG"),
-          status: msg.success === false ? "Error" : "Info",
-          ip: "-",
-          latency: "-",
-          from: msg.type === "log" ? "Engine" : "Native",
-          type: msg.type,
-          size: "-"
-        });
+      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
+        if (bgState.isEngineLogActive) {
+          sendLog({
+            url: msg.url || msg.host || msg.message || msg.error,
+            method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
+            status: msg.status || (msg.success === false ? "Error" : "Info"),
+            ip: msg.ip || "-",
+            latency: msg.latency || "-",
+            from: msg.from || (msg.type === "log" ? "Straws Engine" : "Native"),
+            type: msg.type,
+            size: msg.size || "-",
+            headers: msg.headers || null,
+            payload: msg.payload !== undefined && msg.payload !== null ? msg.payload : null,
+            response: msg.response !== undefined && msg.response !== null ? msg.response : null,
+            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0)
+          });
+        }
       }
     });
     return bgState.nativePort;
@@ -222,7 +231,7 @@ async function updateProxySettings(rulesObj, masterSwitch) {
   bgState.rules = rulesObj;
   bgState.masterSwitch = masterSwitch;
 
-  const proxyRules = Object.values(rulesObj).filter(r => 
+  const proxyRules = Object.values(rulesObj).filter(r =>
     r.active && r.source && r.destination && masterSwitch && r.type === 'engine'
   );
 
@@ -283,7 +292,16 @@ function handleFirefoxProxy(requestInfo) {
   const matchingRule = rules.find(r => url.hostname === r.source || url.hostname.endsWith('.' + r.source));
 
   if (matchingRule) {
-    return { type: "http", host: "127.0.0.1", port: 5782 };
+    let proxyHost = "127.0.0.1";
+    let proxyPort = 5782;
+
+    if (bgState.remoteEngineUrl) {
+      const parts = bgState.remoteEngineUrl.split(':');
+      proxyHost = parts[0];
+      proxyPort = parseInt(parts[1]) || 5782;
+    }
+
+    return { type: "http", host: proxyHost, port: proxyPort };
   }
 
   return { type: "direct" };
@@ -310,6 +328,10 @@ async function runSync() {
 }
 
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_LOGS') {
+    sendResponse({ logs: logBuffer });
+    return false;
+  }
   if (message.type === 'GET_CERTS') {
     const port = getNativePort();
     if (!port) {
@@ -331,35 +353,72 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 browser.storage.onChanged.addListener((changes, area) => {
   if (area === 'local') {
-    if (changes.rules || changes.masterSwitch || changes.isEngineActive) {
+    if (changes.rules || changes.masterSwitch || changes.isEngineActive || changes.remoteEngineUrl) {
       if (changes.isEngineActive) {
         bgState.isEngineActive = !!changes.isEngineActive.newValue;
         getNativePort(); // Trigger connect/disconnect
       }
+      if (changes.remoteEngineUrl) {
+        bgState.remoteEngineUrl = changes.remoteEngineUrl.newValue || '';
+      }
       clearTimeout(syncTimeout);
       syncTimeout = setTimeout(runSync, 150);
     }
-    if (changes.isLiveLogActive !== undefined) {
-      bgState.isLiveLogActive = !!changes.isLiveLogActive.newValue;
+    if (changes.isBrowserLogActive !== undefined) {
+      bgState.isBrowserLogActive = !!changes.isBrowserLogActive.newValue;
+    }
+    if (changes.isEngineLogActive !== undefined) {
+      bgState.isEngineLogActive = !!changes.isEngineLogActive.newValue;
+      syncLoggingToEngine(bgState.isEngineLogActive);
+    }
+    if (changes.isRecordingActive !== undefined) {
+      bgState.isRecordingActive = !!changes.isRecordingActive.newValue;
+      syncRecordingToEngine(bgState.isRecordingActive);
     }
   }
 });
+
+async function syncRecordingToEngine(enabled) {
+  const port = getNativePort();
+  if (!port) return;
+  
+  console.log("Syncing recording state to engine:", enabled);
+  port.postMessage({
+    command: "set_recording",
+    enabled: enabled
+  });
+}
+
+async function syncLoggingToEngine(enabled) {
+  const port = getNativePort();
+  if (!port) return;
+  
+  console.log("Syncing logging state to engine:", enabled);
+  port.postMessage({
+    command: "set_logging",
+    enabled: enabled
+  });
+}
 
 // Try syncing on start
 syncRules();
 
 // Init state from storage
-browser.storage.local.get(['isLiveLogActive', 'isEngineActive']).then(data => {
-  bgState.isLiveLogActive = !!data.isLiveLogActive;
+browser.storage.local.get(['isBrowserLogActive', 'isEngineLogActive', 'isEngineActive', 'isRecordingActive', 'remoteEngineUrl']).then(data => {
+  bgState.isBrowserLogActive = !!data.isBrowserLogActive;
+  bgState.isEngineLogActive = !!data.isEngineLogActive;
   bgState.isEngineActive = !!data.isEngineActive;
+  bgState.isRecordingActive = !!data.isRecordingActive;
+  bgState.remoteEngineUrl = data.remoteEngineUrl || '';
   if (bgState.isEngineActive) getNativePort();
+  if (bgState.isEngineLogActive) syncLoggingToEngine(true);
 });
 
 // Alarms (auto-off Live Log)
 if (typeof browser.alarms !== 'undefined') {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'liveLogOff') {
-      browser.storage.local.set({ isLiveLogActive: false });
+      browser.storage.local.set({ isBrowserLogActive: false, isEngineLogActive: false });
     }
   });
 }
@@ -367,21 +426,29 @@ if (typeof browser.alarms !== 'undefined') {
 // --- NETWORK MONITOR (Observational) ---
 
 const activeRequests = new Map();
+const logBuffer = [];
+const MAX_BUFFER = 100;
 
 // Helper to send logs to UI
 function sendLog(log) {
+  const entry = {
+    timestamp: new Date().toLocaleTimeString(),
+    ...log
+  };
+  
+  // Push to buffer
+  logBuffer.push(entry);
+  if (logBuffer.length > MAX_BUFFER) logBuffer.shift();
+
   browser.runtime.sendMessage({
     type: 'LOG_ENTRY',
-    log: {
-      timestamp: new Date().toLocaleTimeString(),
-      ...log
-    }
-  }).catch(() => { /* Side panel closed */ });
+    log: entry
+  }).catch(() => { /* No listeners active */ });
 }
 
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (!bgState.isLiveLogActive) return;
+    if (!bgState.isBrowserLogActive) return;
     activeRequests.set(details.requestId, {
       startTime: Date.now(),
       url: details.url,
@@ -392,18 +459,31 @@ browser.webRequest.onBeforeRequest.addListener(
   { urls: ["<all_urls>"] }
 );
 
+browser.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!bgState.isBrowserLogActive) return;
+    const req = activeRequests.get(details.requestId);
+    if (req) {
+      req.requestHeaders = details.requestHeaders;
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["requestHeaders"]
+);
+
 browser.webRequest.onResponseStarted.addListener(
   (details) => {
-    if (!bgState.isLiveLogActive) return;
+    if (!bgState.isBrowserLogActive) return;
     const req = activeRequests.get(details.requestId);
     if (req) {
       req.status = details.statusCode;
       req.ip = details.ip || '-';
       req.fromCache = details.fromCache;
-      
+
       // Get content-type from headers
       const ctHeader = details.responseHeaders?.find(h => h.name.toLowerCase() === 'content-type');
       req.contentType = ctHeader ? ctHeader.value.split(';')[0] : 'unknown';
+      req.responseHeaders = details.responseHeaders;
     }
   },
   { urls: ["<all_urls>"] },
@@ -412,11 +492,11 @@ browser.webRequest.onResponseStarted.addListener(
 
 browser.webRequest.onCompleted.addListener(
   (details) => {
-    if (!bgState.isLiveLogActive) return;
+    if (!bgState.isBrowserLogActive) return;
     const req = activeRequests.get(details.requestId);
     if (req) {
       const latency = Date.now() - req.startTime;
-      
+
       // Get content-length for size
       const sizeHeader = details.responseHeaders?.find(h => h.name.toLowerCase() === 'content-length');
       const size = sizeHeader ? `${(parseInt(sizeHeader.value) / 1024).toFixed(2)} KB` : '-';
@@ -429,11 +509,11 @@ browser.webRequest.onCompleted.addListener(
         const urlObj = new URL(req.url);
         const isStrawDNR = req.url.includes('127.0.0.1') || req.url.includes('localhost');
         const isStrawProxy = Object.values(bgState.rules).some(r => 
-          r.active && r.type === 'proxy' && (urlObj.hostname === r.source || urlObj.hostname.endsWith('.' + r.source))
+          r.active && (r.type === 'proxy' || r.type === 'engine' || r.type === 'passthrough') && (urlObj.hostname === r.source || urlObj.hostname.endsWith('.' + r.source))
         );
-        
-        if (isStrawDNR) from = 'Straw (Redir)';
-        else if (isStrawProxy) from = 'Straw (Proxy)';
+
+        if (isStrawDNR) from = 'Straws (Redir)';
+        else if (isStrawProxy) from = 'Straws (Proxy)';
       }
 
       sendLog({
@@ -444,7 +524,11 @@ browser.webRequest.onCompleted.addListener(
         latency: `${latency}ms`,
         from: from,
         type: req.contentType || 'unknown',
-        size: size
+        size: size,
+        headers: {
+          request: req.requestHeaders || "Not available in observer mode",
+          response: req.responseHeaders || "Not available"
+        }
       });
       activeRequests.delete(details.requestId);
     }
@@ -455,16 +539,24 @@ browser.webRequest.onCompleted.addListener(
 
 browser.webRequest.onErrorOccurred.addListener(
   (details) => {
-    if (!bgState.isLiveLogActive) return;
+    if (!bgState.isBrowserLogActive) return;
     const req = activeRequests.get(details.requestId);
     if (req) {
+      const urlObj = new URL(req.url);
+      const isStrawProxy = Object.values(bgState.rules).some(r => 
+        r.active && (r.type === 'proxy' || r.type === 'engine' || r.type === 'passthrough') && (urlObj.hostname === r.source || urlObj.hostname.endsWith('.' + r.source))
+      );
+      
+      let from = 'Network';
+      if (isStrawProxy) from = 'Straws (Proxy)';
+
       sendLog({
         url: req.url,
         method: req.method,
         status: 'Error',
         ip: '-',
         latency: `${Date.now() - req.startTime}ms`,
-        from: 'Network',
+        from: from,
         type: details.error,
         size: '-'
       });

@@ -6,7 +6,7 @@
   "scripts": {
     "dev:chrome": "VITE_BROWSER=chrome vite",
     "dev:firefox": "VITE_BROWSER=firefox vite",
-    "build:engine": "cd go-engine && go build -o bin/straws-engine cmd/proxy/main.go",
+    "build:engine": "cd ../straws-core && go build -o bin/straws-engine cmd/proxy/main.go",
     "build:chrome": "VITE_BROWSER=chrome vite build",
     "build:firefox": "VITE_BROWSER=firefox vite build",
     "test": "node tests/firefox-e2e.test.cjs",

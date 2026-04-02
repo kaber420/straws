@@ -219,16 +219,27 @@ input:checked + .slider:before {
   padding: 0.35rem;
   border-radius: var(--radius-sm);
   transition: all 0.2s;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 
 .btn-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   stroke: currentColor;
   stroke-width: 2;
   fill: none;
+}
+
+.header-btn {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  opacity: 0.8;
+}
+
+.header-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .btn-icon:hover {
@@ -716,12 +727,66 @@ input:checked + .slider:before {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+.preset-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+  transition: all 0.2s;
+}
+
+.preset-item:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-glass);
+}
+
+.preset-item span {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.modal-content textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 80px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.modal-content textarea:focus {
+  border-color: var(--accent-primary);
+}
+
+/* Rule Card Actions Hover */
+.rule-card .rule-actions {
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.rule-card:hover .rule-actions {
+  opacity: 1;
+}
+
+/* Cert Badge premium look */
 .cert-status {
-  font-size: 0.65rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  font-weight: bold;
+  font-size: 0.6rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 20px;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 800;
 }
 
 .cert-status.found {
@@ -732,24 +797,4 @@ input:checked + .slider:before {
 .cert-status.missing {
   color: var(--error);
   background: rgba(239, 68, 68, 0.1);
-}
-
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--bg-glass);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
 }

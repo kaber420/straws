@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Straws | Observability Explorer</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 1. Navigation Sidebar -->
+    <aside class="sidebar">
+        <div class="brand-section">
+            <img src="icons/icon-48.png" alt="Logo" class="logo-icon">
+            <h1>Straws <span>Pro</span></h1>
+        </div>
+        
+        <nav class="nav-group">
+            <a href="#" class="nav-item active">
+                <span class="icon">🕸</span> Network Traces
+            </a>
+            <a href="#" class="nav-item">
+                <span class="icon">📊</span> Metrics
+            </a>
+            <a href="#" class="nav-item">
+                <span class="icon">🔐</span> Certificates
+            </a>
+            <a href="#" class="nav-item">
+                <span class="icon">⚙️</span> Settings
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-badge" id="engine-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Engine Offline</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 2. Main Stage -->
+    <main class="main-view">
+        <header class="view-header">
+            <div class="header-title">
+                <h2>Network Activity <span class="count-badge" id="log-count">0</span></h2>
+            </div>
+            <div class="header-toolbar">
+                <button id="live-btn" class="btn btn-live" title="Capture from Browser (webRequest)">
+                    <span class="icon">📡</span> <span class="btn-text">Browser Logs</span>
+                </button>
+                <button id="engine-log-btn" class="btn btn-engine" title="Capture from Go Engine (Telemetry)">
+                    <span class="icon">🚀</span> <span class="btn-text">Engine Logs</span>
+                </button>
+                <button id="record-btn" class="btn btn-record">
+                    <span class="icon">⏺</span> <span class="btn-text">Record Session</span>
+                </button>
+                <button id="clear-btn" class="btn">Clear</button>
+            </div>
+        </header>
+
+        <!-- Filter Bar -->
+        <section class="filter-section">
+            <div class="search-wrapper">
+                <span class="search-icon" style="position:absolute; left:12px; top:8px; opacity:0.5">🔍</span>
+                <input type="text" id="filter-input" placeholder="Search by URL, Regex, Method...">
+            </div>
+            <div class="cat-filters">
+                <button class="pill active" data-filter="all">All</button>
+                <button class="pill" data-filter="api">Fetch/XHR</button>
+                <button class="pill" data-filter="asset">Assets</button>
+                <button class="pill" data-filter="doc">Doc</button>
+            </div>
+        </section>
+
+        <!-- Dynamic Table -->
+        <div class="table-wrapper">
+            <table id="network-table">
+                <thead>
+                    <tr>
+                        <th style="width: 80px">Time</th>
+                        <th style="width: 80px">Method</th>
+                        <th>URL</th>
+                        <th style="width: 100px">Status</th>
+                        <th style="width: 100px">Type</th>
+                        <th style="width: 100px">From</th>
+                        <th style="width: 100px">Size</th>
+                        <th class="waterfall-col">Waterfall</th>
+                    </tr>
+                </thead>
+                <tbody id="network-body">
+                    <!-- Dynamic logs here -->
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- 3. Inspector Sidepanel -->
+    <article class="inspector" id="detail-panel">
+        <header class="insp-header">
+            <h3>Request Inspector</h3>
+            <button id="close-detail" class="btn">Close</button>
+        </header>
+        
+        <div id="no-selection" class="insp-empty">
+            <div class="insp-empty-icon">📂</div>
+            <p>Select a trace to inspect headers and payload</p>
+        </div>
+
+        <div id="request-details" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+            <div class="insp-tabs">
+                <div class="insp-tab active" data-tab="headers">Headers</div>
+                <div class="insp-tab" data-tab="payload">Payload</div>
+                <div class="insp-tab" data-tab="response">Response</div>
+                <div class="insp-tab" data-tab="timing">Timing</div>
+            </div>
+            
+            <div class="insp-body">
+                <div class="tab-panel active" id="tab-headers">
+                    <div id="source-indicator" style="margin-bottom: 12px; font-size: 0.8rem; padding: 8px; background: var(--bg-elevated); border-radius: 4px; border-left: 3px solid var(--accent-cyan);">
+                        <b>Source:</b> <span id="source-text">Unknown</span>
+                    </div>
+                    <pre id="header-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-payload">
+                    <pre id="payload-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-response">
+                    <pre id="response-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-timing">
+                    <!-- Timing visualization could go here -->
+                    <div id="timing-view" class="code-view">Timing data visualization coming soon...</div>
+                </div>
+            </div>
+        </div>
+    </article>
+
+    <script src="js/dashboard.js" type="module"></script>
+</body>
+</html>

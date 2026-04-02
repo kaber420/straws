@@ -2,7 +2,7 @@ import browser from "webextension-polyfill";
 document.addEventListener('DOMContentLoaded', () => {
     const terminalOutput = document.getElementById('terminal-output');
     const clearBtn = document.getElementById('clear-logs-btn');
-    const toggleLogBtn = document.getElementById('toggle-livelog-btn');
+    const engineLogSwitch = document.getElementById('engine-log-switch');
     const MAX_LOGS = 100;
 
     const logOverlay = document.getElementById('log-overlay');
@@ -37,12 +37,12 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (log.status >= 400) statusClass = 'status-4xx';
         }
 
-        const fromClass = log.from === 'Straw' ? 'from-straw' : 'from-direct';
+        const fromClass = (log.from === 'Straws Engine') ? 'from-straw' : 'from-direct';
         const displayUrl = shortenURL(log.url);
 
         div.innerHTML = `
             <span class="time">${log.timestamp}</span>
-            <span class="from ${fromClass}">[${log.from}]</span>
+            <span class="from ${fromClass}">[${log.from || 'Direct'}]</span>
             <span class="method">${log.method}</span>
             <span class="url" title="${log.url}">${displayUrl}</span>
             <div class="log-details">
@@ -60,6 +60,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showLogDetails(log) {
+        const formatBody = (body) => {
+            if (!body) return "";
+            if (typeof body === 'string' && body.trim() === "") return "";
+            try {
+                if (typeof body === 'string' && (body.startsWith('{') || body.startsWith('['))) {
+                    return JSON.stringify(JSON.parse(body), null, 2);
+                }
+            } catch (e) {}
+            return typeof body === 'object' ? JSON.stringify(body, null, 2) : body;
+        };
+
+        const payload = formatBody(log.payload);
+        const response = formatBody(log.response);
+        const headers = log.headers ? JSON.stringify(log.headers, null, 2) : "";
+
         logOverlayContent.innerHTML = `
 <div class="detail-row"><span class="label">Timestamp:</span>${log.timestamp}</div>
 <div class="detail-row"><span class="label">From:</span>${log.from}</div>
@@ -69,7 +84,9 @@ document.addEventListener('DOMContentLoaded', () => {
 <div class="detail-row"><span class="label">Latency:</span>${log.latency}</div>
 <div class="detail-row"><span class="label">IP:</span>${log.ip}</div>
 <div class="detail-row"><span class="label">Type:</span>${log.type}</div>
-<div class="detail-row"><span class="label">Size:</span>${log.size}</div>
+${headers ? `<div class="detail-section"><span class="label">Headers:</span><pre class="code-view">${headers}</pre></div>` : ''}
+${payload ? `<div class="detail-section"><span class="label">Payload:</span><pre class="code-view">${payload}</pre></div>` : ''}
+${response ? `<div class="detail-section"><span class="label">Response:</span><pre class="code-view">${response}</pre></div>` : ''}
 ${log.error ? `<div class="detail-row"><span class="label">Error:</span>${log.error}</div>` : ''}
 `.trim();
         logOverlay.classList.add('active');
@@ -115,50 +132,20 @@ ${log.error ? `<div class="detail-row"><span class="label">Error:</span>${log.er
         logOverlay.classList.remove('active');
     });
 
-    function updateToggleBtn(isActive) {
-        if (!toggleLogBtn) return;
-        if (isActive) {
-            toggleLogBtn.innerHTML = '<span style="color:#e11d48; font-weight: bold;">⏹ Stop Logging</span>';
-            toggleLogBtn.style.borderColor = '#e11d48';
-        } else {
-            toggleLogBtn.innerHTML = '▶ Start (5m)';
-            toggleLogBtn.style.borderColor = 'var(--border-light)';
-        }
-        const content = terminalOutput.querySelector('.terminal-content') || terminalOutput;
-        if (content.children.length === 0 || (content.children.length === 1 && content.querySelector('.info'))) {
-             content.innerHTML = isActive ? '<span class="log info">Live Log started. Listening for 5 minutes...</span>' : '<span class="log info">System initialized. Live Log is OFF.</span>';
-        }
-    }
-
-    browser.storage.local.get('isLiveLogActive').then(data => {
-        updateToggleBtn(!!data.isLiveLogActive);
+    browser.storage.local.get(['isBrowserLogActive', 'isEngineLogActive']).then(data => {
+        if (engineLogSwitch) engineLogSwitch.checked = !!data.isEngineLogActive;
     });
 
     browser.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && changes.isLiveLogActive !== undefined) {
-            updateToggleBtn(!!changes.isLiveLogActive.newValue);
-            if (!changes.isLiveLogActive.newValue) {
-                const content = terminalOutput.querySelector('.terminal-content') || terminalOutput;
-                const msg = document.createElement('div');
-                msg.innerHTML = '<span class="log info" style="color:#e11d48;">Live Log stopped (timer or manual).</span>';
-                content.appendChild(msg);
-                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        if (area === 'local') {
+            if (changes.isEngineLogActive !== undefined && engineLogSwitch) {
+                engineLogSwitch.checked = !!changes.isEngineLogActive.newValue;
             }
         }
     });
 
-    toggleLogBtn?.addEventListener('click', async () => {
-        const data = await browser.storage.local.get('isLiveLogActive');
-        const isActive = !!data.isLiveLogActive;
-        
-        if (!isActive) {
-            await browser.storage.local.set({ isLiveLogActive: true });
-            if (browser.alarms) browser.alarms.create('liveLogOff', { delayInMinutes: 5 });
-            const content = terminalOutput.querySelector('.terminal-content') || terminalOutput;
-            content.innerHTML = '<span class="log info">Live Log started. Listening for 5 minutes...</span>';
-        } else {
-            await browser.storage.local.set({ isLiveLogActive: false });
-            if (browser.alarms) browser.alarms.clear('liveLogOff');
-        }
+    engineLogSwitch?.addEventListener('change', () => {
+        browser.storage.local.set({ isEngineLogActive: engineLogSwitch.checked });
     });
+
 });

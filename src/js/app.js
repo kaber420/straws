@@ -10,7 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportBtn = document.getElementById('export-btn');
   const importFile = document.getElementById('import-file');
   const clearLogsBtn = document.getElementById('clear-logs-btn');
-  
+  const dashboardBtn = document.getElementById('open-dashboard-btn');
+
   const modal = document.getElementById('rule-modal');
   const ruleForm = document.getElementById('rule-form');
   const cancelRuleBtn = document.getElementById('cancel-rule-btn');
@@ -21,20 +22,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const ruleCertSelect = document.getElementById('rule-cert');
   const engineOptions = document.getElementById('engine-options');
   const certStatusBadge = document.getElementById('cert-status-badge');
-  
+
   const headersModal = document.getElementById('headers-modal');
   const headersForm = document.getElementById('headers-form');
   const headerRuleIdInput = document.getElementById('header-rule-id');
   const headerListInput = document.getElementById('header-list');
   const cancelHeadersBtn = document.getElementById('cancel-headers-btn');
-  
   const terminalContent = document.querySelector('.terminal-content');
+
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsModal = document.getElementById('settings-modal');
+  const settingsForm = document.getElementById('settings-form');
+  const closeSettingsBtn = document.getElementById('close-settings-btn');
+  const remoteEngineUrlInput = document.getElementById('remote-engine-url');
+  const masterKeyInput = document.getElementById('master-key');
+  const presetsList = document.getElementById('presets-list');
+  const saveCurrentPresetBtn = document.getElementById('save-current-preset');
 
   let state = {
     rules: {},
     masterSwitch: true,
     isEngineActive: false,
-    availableCerts: []
+    availableCerts: [],
+    remoteEngineUrl: '',
+    masterKey: '',
+    presets: []
   };
 
   const ICONS = {
@@ -44,39 +56,141 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // --- Init & Load ---
-  
+
   async function loadState() {
-    const data = await browser.storage.local.get(['rules', 'masterSwitch', 'isEngineActive']);
+    const data = await browser.storage.local.get(['rules', 'masterSwitch', 'isEngineActive', 'remoteEngineUrl', 'masterKey', 'presets']);
     state.rules = data.rules || {};
-    state.masterSwitch = (data.masterSwitch !== false); // Default to true
+    state.masterSwitch = (data.masterSwitch !== false);
     state.isEngineActive = !!data.isEngineActive;
-    
-    // Migration: Ensure all rules have a valid type
-    let migrated = false;
-    Object.keys(state.rules).forEach(id => {
-      const type = state.rules[id].type;
-      if (!type || type === 'proxy') {
-        state.rules[id].type = (type === 'proxy') ? 'engine' : 'redirect';
-        migrated = true;
-      }
-    });
-    if (migrated) await saveState();
+    state.remoteEngineUrl = data.remoteEngineUrl || '';
+    state.masterKey = data.masterKey || '';
+    state.presets = data.presets || [];
+
+    // Migration: ...
+    // ...
 
     masterSwitch.checked = state.masterSwitch;
     engineSwitch.checked = state.isEngineActive;
+    remoteEngineUrlInput.value = state.remoteEngineUrl;
+    masterKeyInput.value = state.masterKey;
     renderRules();
+    renderPresets();
   }
 
   async function saveState() {
     await browser.storage.local.set({
       rules: state.rules,
       masterSwitch: state.masterSwitch,
-      isEngineActive: state.isEngineActive
+      isEngineActive: state.isEngineActive,
+      remoteEngineUrl: state.remoteEngineUrl,
+      masterKey: state.masterKey,
+      presets: state.presets
     });
   }
 
+  // --- Settings & Presets ---
+
+  settingsBtn.addEventListener('click', () => {
+    renderPresets();
+    settingsModal.classList.remove('hidden');
+  });
+
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsModal.classList.add('hidden');
+  });
+
+  settingsForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    state.remoteEngineUrl = remoteEngineUrlInput.value.trim();
+    state.masterKey = masterKeyInput.value.trim();
+    await saveState();
+    addLog('Global settings saved.', 'success');
+    settingsModal.classList.add('hidden');
+  });
+
+  saveCurrentPresetBtn.addEventListener('click', async () => {
+    const name = prompt("Enter a name for this preset:");
+    if (!name) return;
+
+    const newPreset = {
+      id: Date.now(),
+      name: name,
+      rules: JSON.parse(JSON.stringify(state.rules)) // Deep clone
+    };
+
+    state.presets.push(newPreset);
+    await saveState();
+    renderPresets();
+    addLog(`Preset "${name}" saved.`, 'success');
+  });
+
+  function renderPresets() {
+    if (state.presets.length === 0) {
+      presetsList.innerHTML = '<div class="help-text">No presets saved.</div>';
+      return;
+    }
+
+    presetsList.innerHTML = '';
+    state.presets.forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'preset-item';
+      el.style = 'display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.5rem;';
+      el.innerHTML = `
+        <span style="font-size: 0.875rem; font-weight: 500;">${escapeHtml(p.name)}</span>
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="button" class="btn primary load-preset-btn" data-id="${p.id}" style="padding: 2px 8px; font-size: 0.75rem;">Load</button>
+          <button type="button" class="btn-icon delete-preset-btn" data-id="${p.id}" title="Delete">🗑️</button>
+        </div>
+      `;
+      presetsList.appendChild(el);
+    });
+
+    document.querySelectorAll('.load-preset-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => loadPreset(parseInt(e.target.dataset.id)));
+    });
+
+    document.querySelectorAll('.delete-preset-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => deletePreset(parseInt(e.target.dataset.id)));
+    });
+  }
+
+  async function loadPreset(id) {
+    const preset = state.presets.find(p => p.id === id);
+    if (preset && confirm(`Load preset "${preset.name}"? This will replace current rules.`)) {
+      state.rules = JSON.parse(JSON.stringify(preset.rules));
+      await saveState();
+      renderRules();
+      addLog(`Preset "${preset.name}" loaded.`, 'success');
+      settingsModal.classList.add('hidden');
+    }
+  }
+
+  async function deletePreset(id) {
+    state.presets = state.presets.filter(p => p.id !== id);
+    await saveState();
+    renderPresets();
+  }
+
+  function addLog(msg, type = 'info') {
+    // Look for monitor.js's window.addLog or fallback to internal
+    if (typeof window.addLog === 'function') {
+      window.addLog(msg, type);
+    } else {
+      console.log(`[Log] ${type}: ${msg}`);
+      // Try to find the terminal content and inject manually if possible
+      const terminalContent = document.querySelector('.terminal-content');
+      if (terminalContent) {
+        const logEl = document.createElement('div');
+        logEl.className = `log ${type}`;
+        logEl.textContent = msg;
+        terminalContent.appendChild(logEl);
+        terminalContent.scrollTop = terminalContent.scrollHeight;
+      }
+    }
+  }
+
   // --- Rendering ---
-  
+
   function renderRules() {
     const ruleIds = Object.keys(state.rules);
     if (ruleIds.length === 0) {
@@ -84,15 +198,15 @@ document.addEventListener('DOMContentLoaded', () => {
       rulesList.classList.add('empty');
       return;
     }
-    
+
     rulesList.classList.remove('empty');
     rulesList.innerHTML = '';
-    
+
     ruleIds.forEach(id => {
       const rule = state.rules[id];
       const el = document.createElement('div');
       el.className = `rule-card ${rule.active && state.masterSwitch ? '' : 'inactive'}`;
-      
+
       el.innerHTML = `
         <div class="rule-info">
           <div class="rule-source" title="${escapeHtml(rule.source)}">
@@ -120,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.rule-toggle').forEach(el => {
       el.addEventListener('change', (e) => toggleRule(parseInt(e.target.dataset.id), e.target.checked));
     });
-    
+
     document.querySelectorAll('.key-rule-btn').forEach(el => {
       el.addEventListener('click', (e) => {
         const id = parseInt(e.currentTarget.dataset.id);
@@ -134,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal(state.rules[id]);
       });
     });
-    
+
     document.querySelectorAll('.delete-rule-btn').forEach(el => {
       el.addEventListener('click', (e) => deleteRule(parseInt(e.currentTarget.dataset.id)));
     });
@@ -169,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Modal ---
-  
+
   addBtn.addEventListener('click', () => openModal());
   cancelRuleBtn.addEventListener('click', closeModal);
 
@@ -178,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ruleIdInput.value = '';
     modalTitle.textContent = 'Add New Straw';
     certStatusBadge.classList.add('hidden');
-    
+
     // Fetch certs first to ensure dropdown is ready
     await fetchAvailableCerts();
 
@@ -192,13 +306,13 @@ document.addEventListener('DOMContentLoaded', () => {
       ruleIdInput.value = rule.id || '';
       ruleSourceInput.value = rule.source || '';
       ruleDestInput.value = rule.destination || '';
-      
+
       const typeRadio = document.querySelector(`input[name="rule-type"][value="${rule.type}"]`);
       if (typeRadio) {
         typeRadio.checked = true;
         toggleRuleType(rule.type);
       }
-      
+
       if (rule.type === 'engine') {
         const certValue = rule.certificate || rule.cert || '';
         ruleCertSelect.value = certValue;
@@ -217,13 +331,13 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       engineOptions.classList.add('hidden');
     }
-    
+
     modal.classList.remove('hidden');
     ruleSourceInput.focus();
   }
 
   // --- Headers Modal ---
-  
+
   function openHeadersModal(rule) {
     if (!rule) return;
     headersForm.reset();
@@ -281,14 +395,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const domain = ruleSourceInput.value.trim();
     const type = document.querySelector('input[name="rule-type"]:checked').value;
     const selectedCert = ruleCertSelect.value;
-    
+
     if (type !== 'engine' || !domain) {
       certStatusBadge.classList.add('hidden');
       return;
     }
 
     certStatusBadge.classList.remove('hidden');
-    
+
     // Help function for wildcard match
     const isMatch = (pattern, host) => {
       if (!pattern || !host) return false;
@@ -302,11 +416,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Auto Mode: Check if ANY available cert matches the domain
       const anyMatch = state.availableCerts.some(cert => isMatch(cert, domain));
       if (anyMatch) {
-         certStatusBadge.textContent = 'Auto (SNI) Ready';
-         certStatusBadge.className = 'cert-status found';
+        certStatusBadge.textContent = 'Auto (SNI) Ready';
+        certStatusBadge.className = 'cert-status found';
       } else {
-         certStatusBadge.textContent = 'Auto (No Match)';
-         certStatusBadge.className = 'cert-status missing';
+        certStatusBadge.textContent = 'Auto (No Match)';
+        certStatusBadge.className = 'cert-status missing';
       }
       return;
     }
@@ -392,13 +506,19 @@ document.addEventListener('DOMContentLoaded', () => {
   ruleCertSelect.addEventListener('change', updateCertStatus);
 
   // --- Logs Handling moved to monitor.js ---
-  
+
   clearLogsBtn.addEventListener('click', () => {
     terminalContent.innerHTML = '';
   });
 
+  if (dashboardBtn) {
+    dashboardBtn.addEventListener('click', () => {
+      browser.tabs.create({ url: browser.runtime.getURL("dashboard.html") });
+    });
+  }
+
   // --- Import / Export ---
-  
+
   exportBtn.addEventListener('click', () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.rules, null, 2));
     const downloadAnchorNode = document.createElement('a');
@@ -436,7 +556,7 @@ document.addEventListener('DOMContentLoaded', () => {
               };
             }
           });
-          
+
           await saveState();
           renderRules();
           addLog('Rules imported successfully.', 'success');
@@ -453,11 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function escapeHtml(unsafe) {
     if (!unsafe) return '';
     return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   // Load state
