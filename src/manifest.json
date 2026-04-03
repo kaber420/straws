@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Straws",
   "version": "1.0",
-  "description": "Powerful declarative proxy engine (Manual Transmission).",
+  "description": "Powerful declarative proxy engine (Active Interceptor).",
   "browser_specific_settings": {
     "gecko": {
       "id": "straws@kaber420.com",

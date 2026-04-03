@@ -1,7 +1,7 @@
 {
   "name": "straws",
   "version": "1.0.0",
-  "description": "Powerful declarative proxy engine (Manual Transmission).",
+  "description": "Powerful declarative proxy engine (Active Interceptor).",
   "type": "module",
   "scripts": {
     "dev:chrome": "VITE_BROWSER=chrome vite",
