@@ -1,5 +1,6 @@
 // js/app.js
 import browser from "webextension-polyfill";
+import { ruleModalHTML, headersModalHTML, settingsModalHTML } from './templates.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const rulesList = document.getElementById('rules-list');
@@ -12,10 +13,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearLogsBtn = document.getElementById('clear-logs-btn');
   const dashboardBtn = document.getElementById('open-dashboard-btn');
 
-  const modal = document.getElementById('rule-modal');
+  const dynamicModal = document.getElementById('dynamic-modal');
+  const dmTitle = document.getElementById('dm-title');
+  const dmBody = document.getElementById('dm-body');
+
+  dmBody.innerHTML = ruleModalHTML + headersModalHTML + settingsModalHTML;
+
   const ruleForm = document.getElementById('rule-form');
-  const cancelRuleBtn = document.getElementById('cancel-rule-btn');
-  const modalTitle = document.getElementById('modal-title');
   const ruleIdInput = document.getElementById('rule-id');
   const ruleSourceInput = document.getElementById('rule-source');
   const ruleDestInput = document.getElementById('rule-dest');
@@ -23,17 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const engineOptions = document.getElementById('engine-options');
   const certStatusBadge = document.getElementById('cert-status-badge');
 
-  const headersModal = document.getElementById('headers-modal');
   const headersForm = document.getElementById('headers-form');
   const headerRuleIdInput = document.getElementById('header-rule-id');
   const headerListInput = document.getElementById('header-list');
-  const cancelHeadersBtn = document.getElementById('cancel-headers-btn');
-  const terminalContent = document.querySelector('.terminal-content');
 
   const settingsBtn = document.getElementById('settings-btn');
-  const settingsModal = document.getElementById('settings-modal');
   const settingsForm = document.getElementById('settings-form');
-  const closeSettingsBtn = document.getElementById('close-settings-btn');
   const remoteEngineUrlInput = document.getElementById('remote-engine-url');
   const masterKeyInput = document.getElementById('master-key');
   const presetsList = document.getElementById('presets-list');
@@ -49,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     presets: []
   };
 
+  const terminalContent = document.querySelector('.terminal-content');
   const ICONS = {
     edit: `<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`,
     delete: `<svg viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>`,
@@ -88,15 +88,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // --- Global Modal Engine ---
+  function openGlobalModal(title, activeForm) {
+    document.getElementById('dm-title').textContent = title;
+    
+    document.getElementById('rule-form').style.display = 'none';
+    document.getElementById('headers-form').style.display = 'none';
+    document.getElementById('settings-form').style.display = 'none';
+    
+    activeForm.style.display = 'block';
+    document.getElementById('dynamic-modal').classList.remove('hidden');
+  }
+
+  function closeGlobalModal() {
+    document.getElementById('dynamic-modal').classList.add('hidden');
+  }
+
+  document.getElementById('dynamic-modal').addEventListener('click', (e) => {
+    if (e.target.dataset.action === 'close' || e.target.id === 'dynamic-modal') {
+      closeGlobalModal();
+    }
+  });
+
   // --- Settings & Presets ---
 
   settingsBtn.addEventListener('click', () => {
     renderPresets();
-    settingsModal.classList.remove('hidden');
-  });
-
-  closeSettingsBtn.addEventListener('click', () => {
-    settingsModal.classList.add('hidden');
+    openGlobalModal('Global Settings', settingsForm);
   });
 
   settingsForm.addEventListener('submit', async (e) => {
@@ -105,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.masterKey = masterKeyInput.value.trim();
     await saveState();
     addLog('Global settings saved.', 'success');
-    settingsModal.classList.add('hidden');
+    closeGlobalModal();
   });
 
   saveCurrentPresetBtn.addEventListener('click', async () => {
@@ -161,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await saveState();
       renderRules();
       addLog(`Preset "${preset.name}" loaded.`, 'success');
-      settingsModal.classList.add('hidden');
+      closeGlobalModal();
     }
   }
 
@@ -285,12 +303,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- Modal ---
 
   addBtn.addEventListener('click', () => openModal());
-  cancelRuleBtn.addEventListener('click', closeModal);
 
   async function openModal(rule = null) {
     ruleForm.reset();
     ruleIdInput.value = '';
-    modalTitle.textContent = 'Add New Straw';
     certStatusBadge.classList.add('hidden');
 
     // Fetch certs first to ensure dropdown is ready
@@ -302,7 +318,6 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleRuleType('redirect');
 
     if (rule) {
-      modalTitle.textContent = 'Edit Straw';
       ruleIdInput.value = rule.id || '';
       ruleSourceInput.value = rule.source || '';
       ruleDestInput.value = rule.destination || '';
@@ -320,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     updateCertStatus();
-    modal.classList.remove('hidden');
+    openGlobalModal(rule ? 'Edit Straw' : 'Add New Straw', ruleForm);
     setTimeout(() => ruleSourceInput.focus(), 50);
   }
 
@@ -332,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
       engineOptions.classList.add('hidden');
     }
 
-    modal.classList.remove('hidden');
+    openGlobalModal(document.getElementById('rule-id').value ? 'Edit Straw' : 'Add New Straw', ruleForm);
     ruleSourceInput.focus();
   }
 
@@ -343,15 +358,9 @@ document.addEventListener('DOMContentLoaded', () => {
     headersForm.reset();
     headerRuleIdInput.value = rule.id;
     headerListInput.value = rule.headers || '';
-    headersModal.classList.remove('hidden');
+    openGlobalModal('Headers & Keys', headersForm);
     setTimeout(() => headerListInput.focus(), 50);
   }
-
-  function closeHeadersModal() {
-    headersModal.classList.add('hidden');
-  }
-
-  cancelHeadersBtn.addEventListener('click', closeHeadersModal);
 
   headersForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -360,7 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.rules[id].headers = headerListInput.value;
       await saveState();
       addLog(`Headers updated for Straw #${id}`, 'success');
-      closeHeadersModal();
+      closeGlobalModal();
     }
   });
 
@@ -441,9 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('change', updateCertStatus);
   });
 
-  function closeModal() {
-    modal.classList.add('hidden');
-  }
+  ruleCertSelect.addEventListener('change', updateCertStatus);
 
   ruleForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -500,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     await saveState();
     renderRules();
-    closeModal();
+    closeGlobalModal();
   });
 
   ruleCertSelect.addEventListener('change', updateCertStatus);
