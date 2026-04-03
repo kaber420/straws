@@ -48,6 +48,9 @@ npm run dev:chrome      # Inicia el dev server para Chrome
 npm run dev:firefox     # Inicia el dev server para Firefox
 
 # 📦 Compilación para Producción (Build)
+
+> **⚠️ Precaución con la carpeta `dist/`:** El empaquetador Vite elimina automáticamente el directorio `dist/` al iniciar cualquier comando de compilación. Si cancelas o se interrumpe un build en progreso, la carpeta quedará vacía y la extensión dejará de funcionar localmente. Para restaurarla, vuelve a ejecutar el comando hasta que finalice exitosamente.
+
 npm run build:chrome    # Genera la extensión lista para usar en Chrome
 npm run build:firefox   # Genera la extensión lista para usar en Firefox
 

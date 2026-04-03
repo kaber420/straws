@@ -97,11 +97,13 @@ body {
   display: inline-block;
   width: 44px;
   height: 24px;
+  flex-shrink: 0;
 }
 
 .switch.mini {
   width: 36px;
   height: 20px;
+  flex-shrink: 0;
 }
 
 .switch input {

@@ -1,0 +1,41 @@
+export const dom = {
+    // UI Elements
+    tableBody: document.getElementById('network-body'),
+    detailPanel: document.getElementById('detail-panel'),
+    noSelection: document.getElementById('no-selection'),
+    requestDetails: document.getElementById('request-details'),
+    headerData: document.getElementById('header-data'),
+    payloadData: document.getElementById('payload-data'),
+    responseData: document.getElementById('response-data'),
+    closeDetail: document.getElementById('close-detail'),
+    liveBtn: document.getElementById('live-btn'),
+    engineLogBtn: document.getElementById('engine-log-btn'),
+    recordBtn: document.getElementById('record-btn'),
+    clearBtn: document.getElementById('clear-btn'),
+    statusBadge: document.getElementById('engine-status'),
+    statusText: document.getElementById('engine-status')?.querySelector('.status-text'),
+    filterInput: document.getElementById('filter-input'),
+    logCountBadge: document.getElementById('log-count'),
+    exportHarBtn: document.getElementById('export-har-btn'),
+    importHarBtn: document.getElementById('import-har-btn'),
+    harFileInput: document.getElementById('har-file-input'),
+    globalCompareBtn: document.getElementById('global-compare-btn'),
+
+    // Modal Elements
+    diffModal: document.getElementById('diff-modal'),
+    closeDiffModalBtn: document.getElementById('close-diff-modal'),
+    diffOlderContent: document.getElementById('diff-older-content'),
+    diffNewerContent: document.getElementById('diff-newer-content'),
+    leafModal: document.getElementById('leaf-modal'),
+    closeModalBtn: document.getElementById('close-modal'),
+    strobeBtn: document.getElementById('strobe-btn'),
+    chaosBtn: document.getElementById('chaos-btn'),
+    modalLeafTitle: document.getElementById('modal-leaf-title'),
+    modalLeafId: document.getElementById('modal-leaf-id'),
+    chaosStatusIndicator: document.getElementById('chaos-status-indicator'),
+    clearChaosBtn: document.getElementById('clear-chaos-btn'),
+    
+    // Other
+    refreshCertsBtn: document.getElementById('refresh-certs-btn'),
+    refreshLeavesBtn: document.getElementById('refresh-leaves-btn')
+};
