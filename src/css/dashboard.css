@@ -1179,3 +1179,162 @@ td {
 }
 
 .btn-small { padding: 6px 12px; font-size: 0.75rem; }
+
+/* --- Diff Modal & Checkboxes --- */
+.compare-checkbox-cell {
+    text-align: center;
+    vertical-align: middle;
+    width: 40px;
+}
+
+.compare-checkbox {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-cyan);
+}
+
+.global-compare-btn {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    padding: 12px 24px;
+    border-radius: 30px;
+    box-shadow: 0 8px 32px hsla(199, 89%, 48%, 0.3);
+    font-size: 1rem;
+    font-weight: 700;
+    animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translate(-50%, 20px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.diff-modal-content {
+    max-width: 95vw !important;
+    width: 1400px !important;
+    height: 90vh;
+    border-color: var(--accent-indigo);
+    display: flex;
+    flex-direction: column;
+}
+
+.diff-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 2px;
+    padding: 0;
+    background: var(--border-subtle);
+}
+
+.diff-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-deep);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.diff-pane-title {
+    padding: 12px 16px;
+    font-weight: 800;
+    font-size: 0.75rem;
+    background: var(--bg-surface);
+    border-bottom: 2px solid var(--border-subtle);
+    text-align: center;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.diff-view-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.diff-add {
+    background-color: hsla(142, 71%, 45%, 0.1);
+    color: var(--accent-emerald);
+    border-left: 2px solid var(--accent-emerald);
+    padding-left: 6px;
+    display: block;
+}
+
+.diff-remove {
+    background-color: hsla(0, 84%, 60%, 0.08);
+    color: var(--accent-rose);
+    border-left: 2px solid var(--accent-rose);
+    text-decoration: line-through;
+    padding-left: 6px;
+    display: block;
+    opacity: 0.7;
+}
+
+.diff-mod-val {
+    background-color: hsla(38, 92%, 50%, 0.15);
+    color: var(--accent-amber);
+    padding: 0 4px;
+    border-radius: 2px;
+}
+
+.diff-section {
+    margin-bottom: 32px;
+}
+
+.diff-section-title {
+    color: var(--accent-indigo);
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    opacity: 0.6;
+}
+
+.diff-dict-row {
+    display: flex;
+    min-height: 24px;
+    align-items: flex-start;
+    padding: 4px 8px;
+    border-bottom: 1px solid hsla(222, 47%, 15%, 0.3);
+    transition: background 0.2s;
+}
+
+.diff-dict-row:hover {
+    background: hsla(222, 47%, 15%, 0.5);
+}
+
+.diff-key {
+    width: 35%;
+    font-weight: 700;
+    word-break: break-all;
+    padding-right: 12px;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+}
+
+.diff-val {
+    width: 65%;
+    word-break: break-all;
+    color: var(--text-main);
+}
+
+.diff-view-content pre {
+    background: hsla(222, 47%, 4%, 0.5);
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    margin-top: 8px;
+    color: #cbd5e1;
+    overflow-x: auto;
+}

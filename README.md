@@ -60,4 +60,5 @@ npm run test:firefox    # Ejecuta las pruebas automatizadas con Puppeteer en Fir
 ```
 
 ## 🛡️ Licencia
-AGPL-3.0
+straws-engine AGPL-3.0
+straws GPL-3.0

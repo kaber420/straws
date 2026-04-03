@@ -60,6 +60,14 @@
                         <span class="icon">⏺</span> <span class="btn-text">Record Session</span>
                     </button>
                     <button id="clear-btn" class="btn">Clear</button>
+                    <div class="toolbar-divider" style="width: 1px; height: 24px; background: var(--border-subtle); margin: 0 8px;"></div>
+                    <button id="export-har-btn" class="btn" title="Export as HAR">
+                        <span class="icon">📤</span> <span class="btn-text">Export</span>
+                    </button>
+                    <button id="import-har-btn" class="btn" title="Import HAR">
+                        <span class="icon">📥</span> <span class="btn-text">Import</span>
+                    </button>
+                    <input type="file" id="har-file-input" accept=".har,.json" style="display: none;">
                 </div>
             </header>
 
@@ -82,6 +90,7 @@
                 <table id="network-table">
                     <thead>
                         <tr>
+                            <th style="width: 40px; text-align: center;"></th>
                             <th style="width: 80px">Time</th>
                             <th style="width: 80px">Method</th>
                             <th>URL</th>
@@ -97,6 +106,11 @@
                     </tbody>
                 </table>
             </div>
+            
+            <!-- Global Compare Button (Hidden until 2 selected) -->
+            <button id="global-compare-btn" class="btn btn-primary global-compare-btn hidden">
+                <span class="icon">⚖️</span> <span class="btn-text">Compare 2 Requests</span>
+            </button>
         </div>
 
         <!-- View: Metrics (Hidden by default) -->
@@ -310,6 +324,39 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Request Diff Modal -->
+    <div id="diff-modal" class="modal-overlay hidden">
+        <div class="modal-content diff-modal-content">
+            <header class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon diff-icon">⚖️</span>
+                    <div class="modal-titles">
+                        <h2>Request Diffing</h2>
+                        <span class="modal-subtitle">Side-by-side comparison</span>
+                    </div>
+                </div>
+                <button id="close-diff-modal" class="btn-close">&times;</button>
+            </header>
+            
+            <div class="diff-body">
+                <!-- Older Request Pane -->
+                <div class="diff-pane">
+                    <div class="diff-pane-title">Request A (Older)</div>
+                    <div class="diff-view-content" id="diff-older-content">
+                        <!-- Diff engine output gets injected here -->
+                    </div>
+                </div>
+                <!-- Newer Request Pane -->
+                <div class="diff-pane">
+                    <div class="diff-pane-title">Request B (Newer)</div>
+                    <div class="diff-view-content" id="diff-newer-content">
+                        <!-- Diff engine output gets injected here -->
                     </div>
                 </div>
             </div>

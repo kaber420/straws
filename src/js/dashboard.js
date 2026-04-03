@@ -1,4 +1,6 @@
 import browser from "webextension-polyfill";
+import { exportToHAR, importFromHAR } from './har.js';
+import { renderDiffPaneView } from './diffEngine.js';
 
 // UI Elements
 const tableBody = document.getElementById('network-body');
@@ -17,8 +19,16 @@ const statusBadge = document.getElementById('engine-status');
 const statusText = statusBadge.querySelector('.status-text');
 const filterInput = document.getElementById('filter-input');
 const logCountBadge = document.getElementById('log-count');
+const exportHarBtn = document.getElementById('export-har-btn');
+const importHarBtn = document.getElementById('import-har-btn');
+const harFileInput = document.getElementById('har-file-input');
+const globalCompareBtn = document.getElementById('global-compare-btn');
 
 // Modal Elements
+const diffModal = document.getElementById('diff-modal');
+const closeDiffModalBtn = document.getElementById('close-diff-modal');
+const diffOlderContent = document.getElementById('diff-older-content');
+const diffNewerContent = document.getElementById('diff-newer-content');
 const leafModal = document.getElementById('leaf-modal');
 const closeModalBtn = document.getElementById('close-modal');
 const strobeBtn = document.getElementById('strobe-btn');
@@ -58,6 +68,7 @@ const provider = {
 // Application State
 let logs = [];
 let selectedLogId = null;
+let selectedRequests = [];
 let currentCategory = 'all';
 let startTimeRef = null; // Will be set by first log
 
@@ -283,7 +294,12 @@ function renderLogRow(log) {
     }
     const width = Math.max(Math.min((latencyMs / totalTimeRange) * 100, 100 - offset), 1);
 
+    const isChecked = selectedRequests.includes(log.id) ? 'checked' : '';
+
     tr.innerHTML = `
+        <td class="compare-checkbox-cell" onclick="event.stopPropagation()">
+            <input type="checkbox" class="compare-checkbox" data-id="${log.id}" ${isChecked}>
+        </td>
         <td class="col-time">${log.timestamp}</td>
         <td class="col-method ${log.method}">${log.method}</td>
         <td class="col-url" title="${log.url}">
@@ -302,6 +318,28 @@ function renderLogRow(log) {
     `;
     
     tr.addEventListener('click', () => selectRow(log.id));
+
+    const checkbox = tr.querySelector('.compare-checkbox');
+    checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            if (selectedRequests.length >= 2) {
+                // Remove oldest
+                const removedId = selectedRequests.shift();
+                const oldRowCv = document.querySelector(`.compare-checkbox[data-id="${removedId}"]`);
+                if (oldRowCv) oldRowCv.checked = false;
+            }
+            selectedRequests.push(log.id);
+        } else {
+            selectedRequests = selectedRequests.filter(id => id !== log.id);
+        }
+        
+        if (selectedRequests.length === 2) {
+            globalCompareBtn.classList.remove('hidden');
+        } else {
+            globalCompareBtn.classList.add('hidden');
+        }
+    });
+
     tableBody.insertBefore(tr, tableBody.firstChild);
 }
 
@@ -491,6 +529,65 @@ clearBtn.addEventListener('click', () => {
     tableBody.innerHTML = '';
     updateLogCount();
     closeDetail.click();
+});
+
+exportHarBtn?.addEventListener('click', () => {
+    if (logs.length === 0) {
+        alert("No traces to export.");
+        return;
+    }
+    exportToHAR(logs);
+});
+
+importHarBtn?.addEventListener('click', () => {
+    harFileInput.click();
+});
+
+harFileInput?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const importedLogs = importFromHAR(ev.target.result);
+        if (importedLogs.length > 0) {
+            importedLogs.forEach(logData => {
+                const log = {
+                    ...logData,
+                    id: Date.now() + Math.random().toString(36).substr(2, 9)
+                };
+                if (logs.length === 0 || !startTimeRef) startTimeRef = log.rawTime;
+                logs.push(log);
+                updateMetrics(log);
+                if (matchesFilter(log)) renderLogRow(log);
+            });
+            updateLogCount();
+            updateMetricsUI();
+        } else {
+            alert("Failed to import HAR or file contains no entries.");
+        }
+        harFileInput.value = ''; // Reset
+    };
+    reader.readAsText(file);
+});
+
+globalCompareBtn?.addEventListener('click', () => {
+    if (selectedRequests.length !== 2) return;
+    
+    // Sort so older is first
+    const reqs = selectedRequests.map(id => logs.find(l => l.id === id));
+    reqs.sort((a, b) => a.rawTime - b.rawTime);
+    
+    const [olderReq, newerReq] = reqs;
+
+    diffOlderContent.innerHTML = renderDiffPaneView(olderReq, 'older', newerReq);
+    diffNewerContent.innerHTML = renderDiffPaneView(newerReq, 'newer', olderReq);
+
+    diffModal.classList.remove('hidden');
+});
+
+closeDiffModalBtn?.addEventListener('click', () => {
+    diffModal.classList.add('hidden');
 });
 
 recordBtn.addEventListener('click', async () => {
