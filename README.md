@@ -60,4 +60,4 @@ npm run test:firefox    # Ejecuta las pruebas automatizadas con Puppeteer en Fir
 ```
 
 ## 🛡️ Licencia
-ISC
+AGPL-3.0
