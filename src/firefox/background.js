@@ -1,0 +1,868 @@
+import browser from "webextension-polyfill";
+
+browser.runtime.onInstalled.addListener(() => {
+  if (browser.sidePanel && browser.sidePanel.setPanelBehavior) {
+    browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
+});
+
+async function syncRules() {
+  const data = await browser.storage.local.get(['rules', 'masterSwitch']);
+  const rulesObj = data.rules || {};
+  const masterSwitch = data.masterSwitch !== false;
+
+  const currentRules = await browser.declarativeNetRequest.getDynamicRules();
+  const currentRuleIds = new Set(currentRules.map(r => r.id));
+
+  const rulesToNodes = (rule) => {
+    const nodes = [];
+    let safeSource = rule.source.replace(/^https?:\/\//, '').replace(/\/?$/, '');
+    const baseId = parseInt(rule.id, 10);
+
+    const condition = {
+      urlFilter: `||${safeSource}`,
+      resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+    };
+
+    // 1. Primary Action Rule (Redirect or Block)
+    if (rule.type === 'block') {
+      nodes.push({
+        id: baseId,
+        priority: 1,
+        action: { type: 'block' },
+        condition
+      });
+    } else if (rule.type === 'redirect' || !rule.type) {
+      let host = 'localhost';
+      let port = '';
+      const cleanDest = rule.destination.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
+      if (cleanDest.includes(':')) {
+        const parts = cleanDest.split(':');
+        host = parts[0] || 'localhost';
+        port = parts[1].replace(/\D/g, '');
+      } else if (/^\d+$/.test(cleanDest)) {
+        host = 'localhost';
+        port = cleanDest;
+      } else {
+        host = cleanDest;
+      }
+      host = host.replace(/^\/+|\/+$/g, '');
+
+      nodes.push({
+        id: baseId,
+        priority: 1,
+        action: {
+          type: 'redirect',
+          redirect: {
+            transform: {
+              scheme: 'http',
+              host: host,
+              ...(port ? { port: port } : {})
+            }
+          }
+        },
+        condition
+      });
+    }
+
+    // 2. Headers Rule (DNR allows only one action per rule, so we use a second rule for headers)
+    if (rule.headers) {
+      const requestHeaders = [];
+      rule.headers.split('\n').forEach(line => {
+        const parts = line.split(':');
+        if (parts.length >= 2) {
+          const name = parts[0].trim();
+          const value = parts.slice(1).join(':').trim();
+          if (name) {
+            requestHeaders.push({ header: name, operation: 'set', value: value });
+          }
+        }
+      });
+
+      if (requestHeaders.length > 0) {
+        nodes.push({
+          id: 100000 + baseId,
+          priority: 1,
+          action: {
+            type: 'modifyHeaders',
+            requestHeaders: requestHeaders
+          },
+          condition
+        });
+      }
+    }
+
+    return nodes;
+  };
+
+  const addRules = [];
+  const removeRuleIds = [];
+
+  // Rules that should be active for DNR
+  const activeRulesInStorage = Object.values(rulesObj).filter(r =>
+    r.active && r.source && masterSwitch && (r.type === 'redirect' || r.type === 'block' || !r.type)
+  );
+
+  const allGeneratedNodes = activeRulesInStorage.flatMap(r => rulesToNodes(r));
+  const activeNodeIds = new Set(allGeneratedNodes.map(n => n.id));
+
+  // Determine what to remove: 
+  for (const id of currentRuleIds) {
+    if (!activeNodeIds.has(id)) {
+      removeRuleIds.push(id);
+    }
+  }
+
+  // Determine what to add or update:
+  for (const node of allGeneratedNodes) {
+    const existingRule = currentRules.find(r => r.id === node.id);
+
+    if (!existingRule) {
+      addRules.push(node);
+    } else {
+      // Check for changes
+      const hasChanged = JSON.stringify(existingRule.condition) !== JSON.stringify(node.condition) ||
+        JSON.stringify(existingRule.action) !== JSON.stringify(node.action);
+      if (hasChanged) {
+        removeRuleIds.push(node.id);
+        addRules.push(node);
+      }
+    }
+  }
+
+  if (removeRuleIds.length > 0 || addRules.length > 0) {
+    console.log("Updating DNR rules:", { add: addRules.length, remove: removeRuleIds.length });
+    await browser.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: removeRuleIds,
+      addRules: addRules
+    });
+  }
+
+  // Update Proxy Settings (Phase 3)
+  await updateProxySettings(rulesObj, masterSwitch);
+
+  // Sync rules to Engine (Phase 4)
+  if (bgState.isEngineActive) {
+    syncRulesToEngine(rulesObj, masterSwitch);
+  }
+}
+
+async function syncRulesToEngine(rulesObj, masterSwitch) {
+  const port = getNativePort();
+  if (!port) return;
+
+  const engineRules = Object.values(rulesObj)
+    .filter(r => r.active && masterSwitch && (r.type === 'engine' || r.type === 'passthrough'))
+    .map(r => ({
+      source: r.source,
+      destination: r.destination,
+      type: r.type,
+      cert: r.cert || ''
+    }));
+
+  console.log("Syncing rules to engine:", engineRules);
+  port.postMessage({
+    command: "sync_rules",
+    rules: engineRules
+  });
+}
+
+// --- PROXY IMPLEMENTATION ---
+
+let bgState = {
+  rules: {},
+  masterSwitch: true,
+  isEngineActive: false,
+  isBrowserLogActive: false,
+  isEngineLogActive: true,
+  isRecordingActive: false,
+  remoteEngineUrl: '',
+  nativePort: null,
+  leafRulesApplied: new Set(),
+  leafChaosModes: new Map() // tabId -> mode (latency, jitter, drop, error)
+};
+
+function getNativePort() {
+  if (!bgState.isEngineActive) {
+    if (bgState.nativePort) {
+      bgState.nativePort.disconnect();
+      bgState.nativePort = null;
+    }
+    return null;
+  }
+
+  if (bgState.nativePort) return bgState.nativePort;
+
+  try {
+    console.log("Connecting to Straws Engine...");
+    bgState.nativePort = browser.runtime.connectNative("com.kaber420.straws.core");
+    bgState.nativePort.onDisconnect.addListener((p) => {
+      console.log("Native port disconnected:", p.error);
+      bgState.nativePort = null;
+    });
+
+    bgState.nativePort.onMessage.addListener((msg) => {
+      if (msg.type === "ready" && msg.port) {
+        console.log("Straws Engine synchronized on port:", msg.port);
+        // Normalize port format (ensure it's just the number or 127.0.0.1:port)
+        const portClean = msg.port.replace(":", "");
+        bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
+        updateProxySettings(bgState.rules, bgState.masterSwitch);
+      }
+      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
+        if (bgState.isEngineLogActive) {
+          const url = msg.url || msg.host;
+          const reqHeaders = msg.headers?.request || {};
+          let rawLeafHeader = reqHeaders['X-Straws-Leaf'] || 
+                              reqHeaders['x-straws-leaf'] || 
+                              reqHeaders['X-STRAWS-LEAF'];
+          
+          let leafHeader = Array.isArray(rawLeafHeader) ? rawLeafHeader[0] : rawLeafHeader;
+
+          let tabId, windowId, leafTitle;
+          if (leafHeader && typeof leafHeader === 'string') {
+            const parts = leafHeader.split('-');
+            // Support both "win-tab" and "tab" formats
+            tabId = parseInt(parts[parts.length - 1]);
+            windowId = parts.length > 1 ? parseInt(parts[0]) : null;
+
+            // If windowId is missing or -1, try to restore from cache
+            if (windowId === null || windowId === -1 || isNaN(windowId)) {
+              const cached = tabInfoCache.get(tabId);
+              if (cached && cached.windowId !== -1) windowId = cached.windowId;
+            }
+            
+            const cachedArr = Array.from(tabInfoCache.entries()).find(([id]) => id === tabId);
+            if (cachedArr) leafTitle = cachedArr[1].title;
+          } else {
+            const enriched = urlToTabMap.get(normalizeUrl(url)) || {};
+            tabId = enriched.tabId !== undefined ? enriched.tabId : -1;
+            windowId = (enriched.windowId !== undefined && enriched.windowId !== -1) ? enriched.windowId : null;
+            leafTitle = enriched.title || 'System';
+          }
+
+          let size = msg.size || "-";
+          if (size === "-" && (msg.payload || msg.response)) {
+             const pLen = typeof msg.payload === 'string' ? msg.payload.length : 0;
+             const rLen = typeof msg.response === 'string' ? msg.response.length : 0;
+             const total = pLen + rLen;
+             if (total > 0) {
+               size = (total > 1024) ? (total/1024).toFixed(1) + " KB" : total + " B";
+             }
+          }
+          
+          sendLog({
+            url: msg.url || msg.host || msg.message || msg.error,
+            method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
+            status: msg.status || (msg.success === false ? "Error" : "Info"),
+            ip: msg.ip || "-",
+            latency: msg.latency || "-",
+            from: msg.from || (msg.type === "log" ? "Straws Engine" : "Native"),
+            type: msg.type,
+            size: size,
+            tabId: tabId,
+            windowId: windowId,
+            leafTitle: leafTitle,
+            headers: msg.headers || null,
+            payload: msg.payload !== undefined && msg.payload !== null ? msg.payload : null,
+            response: msg.response !== undefined && msg.response !== null ? msg.response : null,
+            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0)
+          });
+        }
+      }
+    });
+    return bgState.nativePort;
+  } catch (e) {
+    console.error("Failed to connect to native host:", e);
+    return null;
+  }
+}
+
+async function updateProxySettings(rulesObj, masterSwitch) {
+  bgState.rules = rulesObj;
+  bgState.masterSwitch = masterSwitch;
+
+  const proxyRules = Object.values(rulesObj).filter(r =>
+    r.active && r.source && r.destination && masterSwitch && r.type === 'engine'
+  );
+
+  const isFirefox = typeof browser.proxy.onRequest !== 'undefined';
+
+  if (proxyRules.length === 0 || !masterSwitch) {
+    if (isFirefox) {
+      if (browser.proxy.onRequest.hasListener(handleFirefoxProxy)) {
+        browser.proxy.onRequest.removeListener(handleFirefoxProxy);
+      }
+    } else if (typeof chrome !== 'undefined' && chrome.proxy) {
+      chrome.proxy.settings.clear({ scope: 'regular' });
+    }
+    return;
+  }
+
+  if (isFirefox) {
+    // Firefox uses a listener
+    if (!browser.proxy.onRequest.hasListener(handleFirefoxProxy)) {
+      browser.proxy.onRequest.addListener(handleFirefoxProxy, { urls: ["<all_urls>"] });
+    }
+  } else if (typeof chrome !== 'undefined' && chrome.proxy) {
+    // Chrome uses a PAC script
+    const pacScript = generatePACScript(proxyRules);
+    chrome.proxy.settings.set({
+      value: {
+        mode: "pac_script",
+        pacScript: { data: pacScript }
+      },
+      scope: 'regular'
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error("Chrome Proxy Error:", chrome.runtime.lastError);
+      }
+    });
+  }
+}
+
+function generatePACScript(rules) {
+  const cases = rules.map(rule => {
+    return `if (shExpMatch(host, "${rule.source}")) return "PROXY 127.0.0.1:5782";`;
+  }).join('\n    ');
+
+  return `
+    function FindProxyForURL(url, host) {
+      ${cases}
+      return "DIRECT";
+    }
+  `;
+}
+
+// Firefox listener optimized with background cache
+function handleFirefoxProxy(requestInfo) {
+  if (!bgState.masterSwitch) return { type: "direct" };
+
+  const url = new URL(requestInfo.url);
+  const rules = Object.values(bgState.rules).filter(r => r.active && r.type === 'engine');
+  const matchingRule = rules.find(r => url.hostname === r.source || url.hostname.endsWith('.' + r.source));
+
+  if (matchingRule) {
+    let proxyHost = "127.0.0.1";
+    let proxyPort = 5782;
+
+    if (bgState.remoteEngineUrl) {
+      const parts = bgState.remoteEngineUrl.split(':');
+      proxyHost = parts[0];
+      proxyPort = parseInt(parts[1]) || 5782;
+    }
+
+    return { type: "http", host: proxyHost, port: proxyPort };
+  }
+
+  return { type: "direct" };
+}
+
+
+
+// Robust Debounce
+let syncTimeout = null;
+let isSyncing = false;
+let needsSyncAgain = false;
+
+async function runSync() {
+  if (isSyncing) {
+    needsSyncAgain = true;
+    return;
+  }
+  isSyncing = true;
+  do {
+    needsSyncAgain = false;
+    await syncRules();
+  } while (needsSyncAgain);
+  isSyncing = false;
+}
+
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_LOGS') {
+    sendResponse({ logs: logBuffer });
+    return false;
+  }
+  if (message.type === 'GET_CERTS') {
+    const port = getNativePort();
+    if (!port) {
+      sendResponse({ certs: [] });
+      return true;
+    }
+
+    const listener = (res) => {
+      if (res.type === 'certs_list') {
+        port.onMessage.removeListener(listener);
+        sendResponse({ certs: res.certs });
+      }
+    };
+    port.onMessage.addListener(listener);
+    port.postMessage({ command: "get_certs" });
+    return true; // async response
+  }
+  if (message.type === 'DELETE_CERT') {
+    const port = getNativePort();
+    if (!port) {
+      sendResponse({ success: false, error: "Engine not connected" });
+      return false;
+    }
+    port.postMessage({ command: "delete_cert", cert_name: message.name });
+    sendResponse({ success: true });
+    return false;
+  }
+  if (message.type === 'SET_LEAF_CHAOS') {
+    const { tabId, mode } = message;
+    if (mode) {
+      bgState.leafChaosModes.set(tabId, mode);
+    } else {
+      bgState.leafChaosModes.delete(tabId);
+    }
+    // Refresh tagging to apply/remove chaos header
+    setupLeafTagging(tabId, true);
+    sendResponse({ success: true });
+    return false;
+  }
+  if (message.type === 'REFRESH_TAGS') {
+    refreshAllLeafTagging();
+    sendResponse({ success: true });
+    return false;
+  }
+});
+
+async function refreshAllLeafTagging() {
+  const tabs = await browser.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.id >= 0) {
+      await setupLeafTagging(tab.id, true);
+    }
+  }
+  console.log(`[Identity] Refreshed tagging for ${tabs.length} tabs.`);
+}
+
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local') {
+    if (changes.rules || changes.masterSwitch || changes.isEngineActive || changes.remoteEngineUrl) {
+      if (changes.isEngineActive) {
+        bgState.isEngineActive = !!changes.isEngineActive.newValue;
+        getNativePort(); // Trigger connect/disconnect
+      }
+      if (changes.remoteEngineUrl) {
+        bgState.remoteEngineUrl = changes.remoteEngineUrl.newValue || '';
+      }
+      clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(runSync, 150);
+    }
+    if (changes.isBrowserLogActive !== undefined) {
+      bgState.isBrowserLogActive = !!changes.isBrowserLogActive.newValue;
+    }
+    if (changes.isEngineLogActive !== undefined) {
+      bgState.isEngineLogActive = !!changes.isEngineLogActive.newValue;
+      syncLoggingToEngine(bgState.isEngineLogActive);
+    }
+    if (changes.isRecordingActive !== undefined) {
+      bgState.isRecordingActive = !!changes.isRecordingActive.newValue;
+      syncRecordingToEngine(bgState.isRecordingActive);
+    }
+  }
+});
+
+async function syncRecordingToEngine(enabled) {
+  const port = getNativePort();
+  if (!port) return;
+  
+  console.log("Syncing recording state to engine:", enabled);
+  port.postMessage({
+    command: "set_recording",
+    enabled: enabled
+  });
+}
+
+async function syncLoggingToEngine(enabled) {
+  const port = getNativePort();
+  if (!port) return;
+  
+  console.log("Syncing logging state to engine:", enabled);
+  port.postMessage({
+    command: "set_logging",
+    enabled: enabled
+  });
+}
+
+// Try syncing on start
+syncRules();
+
+// Init state from storage
+browser.storage.local.get(['isBrowserLogActive', 'isEngineLogActive', 'isEngineActive', 'isRecordingActive', 'remoteEngineUrl']).then(data => {
+  bgState.isBrowserLogActive = !!data.isBrowserLogActive;
+  bgState.isEngineLogActive = !!data.isEngineLogActive;
+  bgState.isEngineActive = !!data.isEngineActive;
+  bgState.isRecordingActive = !!data.isRecordingActive;
+  bgState.remoteEngineUrl = data.remoteEngineUrl || '';
+  if (bgState.isEngineActive) getNativePort();
+  if (bgState.isEngineLogActive) syncLoggingToEngine(true);
+  
+  // Initial Tab Identity Sync
+  syncTabCache();
+});
+
+// Alarms (auto-off Live Log)
+if (typeof browser.alarms !== 'undefined') {
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'liveLogOff') {
+      browser.storage.local.set({ isBrowserLogActive: false, isEngineLogActive: false });
+    }
+  });
+}
+
+// --- NETWORK MONITOR (Observational) ---
+
+const activeRequests = new Map();
+const tabInfoCache = new Map();
+const urlToTabMap = new Map(); 
+
+function normalizeUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    u.hash = ''; // Remove fragment
+    return u.toString().replace(/\/$/, ''); // Remove trailing slash
+  } catch (e) { return url; }
+}
+const logBuffer = [];
+const MAX_BUFFER = 100;
+
+async function getTabInfo(tabId) {
+  if (tabId < 0) return { title: 'Background', url: '', windowId: -1 };
+  if (tabInfoCache.has(tabId)) return tabInfoCache.get(tabId);
+
+  try {
+    const tab = await browser.tabs.get(tabId);
+    const info = { 
+      title: tab.title || 'Untitled', 
+      url: tab.url || '', 
+      windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
+    };
+    tabInfoCache.set(tabId, info);
+    return info;
+  } catch (e) {
+    // Fallback: try to find the tab by ID in all windows if get fails
+    try {
+      const tabs = await browser.tabs.query({});
+      const tab = tabs.find(t => t.id === tabId);
+      if (tab) {
+        const info = {
+          title: tab.title || 'Untitled',
+          url: tab.url || '',
+          windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
+        };
+        tabInfoCache.set(tabId, info);
+        return info;
+      }
+    } catch (e2) {}
+    return { title: 'Detached Tab', url: '', windowId: null };
+  }
+}
+
+// Robust Identity Cache Management
+async function syncTabCache() {
+  try {
+    const tabs = await browser.tabs.query({});
+    tabInfoCache.clear();
+    for (const tab of tabs) {
+      tabInfoCache.set(tab.id, {
+        title: tab.title || 'Untitled',
+        url: tab.url || '',
+        windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : -1
+      });
+      if (tab.id >= 0) setupLeafTagging(tab.id);
+    }
+    console.log(`[Identity] Sync complete. Tracking ${tabInfoCache.size} tabs.`);
+  } catch (e) {
+    console.error("[Identity] Failed to sync tabs:", e);
+  }
+}
+
+// Event Listeners for Identity Changes
+browser.tabs.onCreated.addListener(async (tab) => {
+  tabInfoCache.set(tab.id, {
+    title: tab.title || 'Untitled',
+    url: tab.url || '',
+    windowId: tab.windowId
+  });
+  setupLeafTagging(tab.id);
+});
+
+browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.title || changeInfo.url || changeInfo.status === 'complete') {
+    tabInfoCache.set(tabId, {
+      title: tab.title || 'Untitled',
+      url: tab.url || '',
+      windowId: tab.windowId
+    });
+    setupLeafTagging(tabId, true);
+  }
+});
+
+browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
+  const tab = await browser.tabs.get(tabId);
+  tabInfoCache.set(tabId, {
+    title: tab.title || 'Untitled',
+    url: tab.url || '',
+    windowId: attachInfo.newWindowId
+  });
+  console.log(`[Identity] Tab ${tabId} moved to window ${attachInfo.newWindowId}`);
+  setupLeafTagging(tabId, true);
+});
+
+browser.tabs.onActivated.addListener(async (activeInfo) => {
+  setupLeafTagging(activeInfo.tabId, true);
+});
+
+browser.tabs.onRemoved.addListener((tabId) => {
+  tabInfoCache.delete(tabId);
+  if (bgState.leafRulesApplied.has(tabId)) {
+    browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [tabId + 10000]
+    });
+    bgState.leafRulesApplied.delete(tabId);
+  }
+});
+
+// Helper to send logs to UI
+function sendLog(log) {
+  const entry = {
+    timestamp: new Date().toLocaleTimeString(),
+    ...log
+  };
+  
+  // Push to buffer
+  logBuffer.push(entry);
+  if (logBuffer.length > MAX_BUFFER) logBuffer.shift();
+
+  browser.runtime.sendMessage({
+    type: 'LOG_ENTRY',
+    log: entry
+  }).catch(() => { /* No listeners active */ });
+}
+
+async function setupLeafTagging(tabId, force = false) {
+  if (tabId < 0 || (bgState.leafRulesApplied.has(tabId) && !force)) return;
+  
+  try {
+    const tabInfo = await getTabInfo(tabId);
+    let winId = (tabInfo.windowId !== undefined && tabInfo.windowId !== null) ? tabInfo.windowId : -1;
+    
+    // Identity verification (No more fallbacks)
+    if (winId === -1 || winId === null) {
+       const tab = await browser.tabs.get(tabId).catch(() => null);
+       if (tab && tab.windowId !== undefined) {
+         winId = tab.windowId;
+         tabInfoCache.set(tabId, { ...tabInfo, windowId: winId });
+       }
+    }
+
+    const ruleId = tabId + 10000; 
+    
+    const chaosMode = bgState.leafChaosModes.get(tabId);
+    const headers = [{
+      header: 'X-Straws-Leaf',
+      operation: 'set',
+      value: `${winId}-${tabId}`
+    }];
+
+    if (chaosMode) {
+      headers.push({
+        header: 'X-Straws-Chaos',
+        operation: 'set',
+        value: chaosMode
+      });
+    }
+
+    await browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [ruleId],
+      addRules: [{
+        id: ruleId,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: headers
+        },
+        condition: {
+          tabIds: [tabId],
+          resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+        }
+      }]
+    });
+    bgState.leafRulesApplied.add(tabId);
+  } catch (e) {
+    console.debug(`Could not setup tagging for tab ${tabId}:`, e);
+  }
+}
+
+// Cleanup rules when tab is closed
+browser.tabs.onRemoved.addListener((tabId) => {
+  if (bgState.leafRulesApplied.has(tabId)) {
+    browser.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [tabId + 10000]
+    });
+    bgState.leafRulesApplied.delete(tabId);
+  }
+  // Delayed removal from tabInfoCache is handled by the primary onRemoved listener
+});
+
+// Update tagging on new requests or tab updates handled by event listeners
+
+browser.webRequest.onBeforeRequest.addListener(
+  async (details) => {
+    if (!bgState.isBrowserLogActive && !bgState.isEngineLogActive) return;
+    
+    // Ensure tagging is active for this tab
+    if (details.tabId >= 0) setupLeafTagging(details.tabId);
+
+    const tabInfo = await getTabInfo(details.tabId);
+    urlToTabMap.set(normalizeUrl(details.url), { 
+      tabId: details.tabId, 
+      windowId: details.windowId, 
+      title: tabInfo.title,
+      time: Date.now()
+    });
+
+    // Cleanup old mappings (older than 1 minute)
+    if (urlToTabMap.size > 500) {
+      const now = Date.now();
+      for (const [url, data] of urlToTabMap.entries()) {
+        if (now - data.time > 60000) urlToTabMap.delete(url);
+      }
+    }
+
+    if (!bgState.isBrowserLogActive) return;
+    activeRequests.set(details.requestId, {
+      startTime: Date.now(),
+      url: details.url,
+      method: details.method,
+      type: details.type,
+      tabId: details.tabId,
+      windowId: details.windowId
+    });
+  },
+  { urls: ["<all_urls>"] }
+);
+
+browser.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!bgState.isBrowserLogActive) return;
+    const req = activeRequests.get(details.requestId);
+    if (req) {
+      req.requestHeaders = details.requestHeaders;
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["requestHeaders"]
+);
+
+browser.webRequest.onResponseStarted.addListener(
+  (details) => {
+    if (!bgState.isBrowserLogActive) return;
+    const req = activeRequests.get(details.requestId);
+    if (req) {
+      req.status = details.statusCode;
+      req.ip = details.ip || '-';
+      req.fromCache = details.fromCache;
+
+      // Get content-type from headers
+      const ctHeader = details.responseHeaders?.find(h => h.name.toLowerCase() === 'content-type');
+      req.contentType = ctHeader ? ctHeader.value.split(';')[0] : 'unknown';
+      req.responseHeaders = details.responseHeaders;
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["responseHeaders"]
+);
+
+browser.webRequest.onCompleted.addListener(
+  async (details) => {
+    if (!bgState.isBrowserLogActive) return;
+    const req = activeRequests.get(details.requestId);
+    if (req) {
+      const latency = Date.now() - req.startTime;
+
+      // Get content-length for size
+      const sizeHeader = details.responseHeaders?.find(h => h.name.toLowerCase() === 'content-length');
+      const size = sizeHeader ? `${(parseInt(sizeHeader.value) / 1024).toFixed(2)} KB` : '-';
+
+      // Identify source of the request for logs
+      let from = 'Direct';
+      if (details.fromCache) {
+        from = 'Cache';
+      } else {
+        const urlObj = new URL(req.url);
+        const isStrawDNR = req.url.includes('127.0.0.1') || req.url.includes('localhost');
+        const isStrawProxy = Object.values(bgState.rules).some(r => 
+          r.active && (r.type === 'proxy' || r.type === 'engine' || r.type === 'passthrough') && (urlObj.hostname === r.source || urlObj.hostname.endsWith('.' + r.source))
+        );
+
+        if (isStrawDNR) from = 'Straws (Redir)';
+        else if (isStrawProxy) from = 'Straws (Proxy)';
+      }
+
+      const tabInfo = await getTabInfo(req.tabId);
+
+      sendLog({
+        url: req.url,
+        method: req.method,
+        status: details.statusCode,
+        ip: details.ip || '-',
+        latency: `${latency}ms`,
+        from: from,
+        type: req.contentType || 'unknown',
+        size: size,
+        tabId: req.tabId,
+        windowId: req.windowId,
+        leafTitle: tabInfo.title,
+        headers: {
+          request: req.requestHeaders || "Not available in observer mode",
+          response: req.responseHeaders || "Not available"
+        }
+      });
+      activeRequests.delete(details.requestId);
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["responseHeaders"]
+);
+
+browser.webRequest.onErrorOccurred.addListener(
+  async (details) => {
+    if (!bgState.isBrowserLogActive) return;
+    const req = activeRequests.get(details.requestId);
+    if (req) {
+      const urlObj = new URL(req.url);
+      const isStrawProxy = Object.values(bgState.rules).some(r => 
+        r.active && (r.type === 'proxy' || r.type === 'engine' || r.type === 'passthrough') && (urlObj.hostname === r.source || urlObj.hostname.endsWith('.' + r.source))
+      );
+      
+      let from = 'Network';
+      if (isStrawProxy) from = 'Straws (Proxy)';
+
+      const tabInfo = await getTabInfo(req.tabId);
+
+      sendLog({
+        url: req.url,
+        method: req.method,
+        status: 'Error',
+        ip: '-',
+        latency: `${Date.now() - req.startTime}ms`,
+        from: from,
+        type: details.error,
+        size: '-',
+        tabId: req.tabId,
+        windowId: req.windowId,
+        leafTitle: tabInfo.title
+      });
+      activeRequests.delete(details.requestId);
+    }
+  },
+  { urls: ["<all_urls>"] }
+);
+

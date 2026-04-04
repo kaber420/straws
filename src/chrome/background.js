@@ -203,6 +203,13 @@ function getNativePort() {
     });
 
     bgState.nativePort.onMessage.addListener((msg) => {
+      if (msg.type === "ready" && msg.port) {
+        console.log("Straws Engine synchronized on port:", msg.port);
+        // Normalize port format (ensure it's just the number or 127.0.0.1:port)
+        const portClean = msg.port.replace(":", "");
+        bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
+        updateProxySettings(bgState.rules, bgState.masterSwitch);
+      }
       if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
         if (bgState.isEngineLogActive) {
           const url = msg.url || msg.host;
@@ -316,8 +323,17 @@ async function updateProxySettings(rulesObj, masterSwitch) {
 }
 
 function generatePACScript(rules) {
+  let proxyHost = "127.0.0.1";
+  let proxyPort = 5782;
+
+  if (bgState.remoteEngineUrl) {
+    const parts = bgState.remoteEngineUrl.split(':');
+    if (parts[0]) proxyHost = parts[0];
+    if (parts.length > 1 && parts[1]) proxyPort = parseInt(parts[1].replace(/\D/g, '')) || 5782;
+  }
+
   const cases = rules.map(rule => {
-    return `if (shExpMatch(host, "${rule.source}")) return "PROXY 127.0.0.1:5782";`;
+    return `if (shExpMatch(host, "${rule.source}")) return "PROXY ${proxyHost}:${proxyPort}";`;
   }).join('\n    ');
 
   return `

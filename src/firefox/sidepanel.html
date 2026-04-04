@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Straws</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <header class="header glass">
+      <div class="header-left">
+        <h1 class="logo">🥤 Straws</h1>
+      </div>
+      <div class="header-right">
+        <div class="header-toggles">
+          <label class="switch-container tooltip" data-tooltip="Straws Engine (Go)">
+            <span class="switch-label">GO</span>
+            <label class="switch mini">
+              <input type="checkbox" id="engine-switch">
+              <span class="slider round"></span>
+            </label>
+          </label>
+          <label class="switch-container tooltip" data-tooltip="Master Switch">
+            <span class="switch-label">MASTER</span>
+            <label class="switch mini">
+              <input type="checkbox" id="master-switch" checked>
+              <span class="slider round"></span>
+            </label>
+          </label>
+          <button id="settings-btn" class="btn-icon header-btn" title="Settings">⚙️</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <button id="add-rule-btn" class="btn primary">Add Straw</button>
+      <div class="toolbar-actions">
+        <button id="import-btn" class="btn secondary">Import</button>
+        <button id="export-btn" class="btn secondary">Export</button>
+        <input type="file" id="import-file" accept=".json" style="display: none;">
+      </div>
+    </div>
+
+    <section class="rules-section">
+      <h2 class="section-title">Active Rules</h2>
+      <div id="rules-list" class="rules-list empty">
+        <!-- Rules will be injected here -->
+      </div>
+    </section>
+
+    <section class="terminal-section">
+      <div class="terminal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <label class="switch mini">
+            <input type="checkbox" id="engine-log-switch">
+            <span class="slider round"></span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 5px;">
+          <button id="open-dashboard-btn" class="btn primary" style="padding: 2px 8px; font-size: 0.75rem;">Open Dashboard 📊</button>
+          <button id="clear-logs-btn" class="btn-icon" title="Clear Logs">🗑️</button>
+        </div>
+      </div>
+      <div class="terminal-body">
+        <div class="terminal-window" id="terminal-output">
+          <div class="terminal-content">
+            <span class="log info">System initialized. Live Log is OFF.</span>
+          </div>
+        </div>
+        <!-- Log Detail Overlay -->
+        <div id="log-overlay" class="log-overlay">
+          <div class="log-overlay-header">
+            <span class="log-overlay-title">Log Details</span>
+            <button class="log-overlay-close" id="close-log-overlay">&times;</button>
+          </div>
+          <div id="log-overlay-content" class="log-overlay-content">
+            <!-- Details will be injected here -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Global Dynamic Modal -->
+    <div id="dynamic-modal" class="modal hidden">
+      <div class="modal-content glass">
+        <h3 id="dm-title">Title</h3>
+        <div id="dm-body">
+          <!-- Dynamic Content Injected Here -->
+        </div>
+      </div>
+    </div>
+    <script type="module" src="js/monitor.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

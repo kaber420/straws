@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Straws | Observability Explorer</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 1. Navigation Sidebar -->
+    <aside class="sidebar">
+        <div class="brand-section">
+            <img src="icons/icon-48.png" alt="Logo" class="logo-icon">
+            <h1>Straws <span>Pro</span></h1>
+        </div>
+        
+        <nav class="nav-group">
+            <a href="#" class="nav-item active" data-view="network" id="nav-network">
+                <span class="icon">🕸</span> Network Traces
+            </a>
+            <a href="#" class="nav-item" data-view="metrics" id="nav-metrics">
+                <span class="icon">📊</span> Metrics
+            </a>
+            <a href="#" class="nav-item" data-view="certificates" id="nav-certificates">
+                <span class="icon">🔐</span> Certificates
+            </a>
+            <a href="#" class="nav-item" data-view="leaves" id="nav-leaves">
+                <span class="icon">💻</span> Leaves
+            </a>
+            <a href="#" class="nav-item">
+                <span class="icon">⚙️</span> Settings
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-badge" id="engine-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Engine Offline</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 2. Main Stage -->
+    <main class="main-view">
+        <!-- View: Network Traces -->
+        <div id="view-network" class="view-container">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Network Activity <span class="count-badge" id="log-count">0</span></h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="live-btn" class="btn btn-live" title="Capture from Browser (webRequest)">
+                        <span class="icon">📡</span> <span class="btn-text">Browser Logs</span>
+                    </button>
+                    <button id="engine-log-btn" class="btn btn-engine" title="Capture from Go Engine (Telemetry)">
+                        <span class="icon">🚀</span> <span class="btn-text">Engine Logs</span>
+                    </button>
+                    <button id="record-btn" class="btn btn-record">
+                        <span class="icon">⏺</span> <span class="btn-text">Record Session</span>
+                    </button>
+                    <button id="clear-btn" class="btn">Clear</button>
+                    <div class="toolbar-divider" style="width: 1px; height: 24px; background: var(--border-subtle); margin: 0 8px;"></div>
+                    <button id="export-har-btn" class="btn" title="Export as HAR">
+                        <span class="icon">📤</span> <span class="btn-text">Export</span>
+                    </button>
+                    <button id="import-har-btn" class="btn" title="Import HAR">
+                        <span class="icon">📥</span> <span class="btn-text">Import</span>
+                    </button>
+                    <input type="file" id="har-file-input" accept=".har,.json" style="display: none;">
+                </div>
+            </header>
+
+            <!-- Filter Bar -->
+            <section class="filter-section">
+                <div class="search-wrapper">
+                    <span class="search-icon" style="position:absolute; left:12px; top:8px; opacity:0.5">🔍</span>
+                    <input type="text" id="filter-input" placeholder="Search by URL, Regex, Method...">
+                </div>
+                <div class="cat-filters">
+                    <button class="pill active" data-filter="all">All</button>
+                    <button class="pill" data-filter="api">Fetch/XHR</button>
+                    <button class="pill" data-filter="asset">Assets</button>
+                    <button class="pill" data-filter="doc">Doc</button>
+                </div>
+            </section>
+
+            <!-- Dynamic Table -->
+            <div class="table-wrapper">
+                <table id="network-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px; text-align: center;"></th>
+                            <th style="width: 80px">Time</th>
+                            <th style="width: 80px">Method</th>
+                            <th>URL</th>
+                            <th style="width: 100px">Status</th>
+                            <th style="width: 100px">Type</th>
+                            <th style="width: 100px">From</th>
+                            <th style="width: 100px">Size</th>
+                            <th class="waterfall-col">Waterfall</th>
+                        </tr>
+                    </thead>
+                    <tbody id="network-body">
+                        <!-- Dynamic logs here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Global Compare Button (Hidden until 2 selected) -->
+            <button id="global-compare-btn" class="btn btn-primary global-compare-btn hidden">
+                <span class="icon">⚖️</span> <span class="btn-text">Compare 2 Requests</span>
+            </button>
+        </div>
+
+        <!-- View: Metrics (Hidden by default) -->
+        <div id="view-metrics" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Observability Metrics</h2>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="m-label">Total Requests</div>
+                        <div class="m-value" id="stat-total-req">0</div>
+                        <div class="m-sub">Current session</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Data Transferred</div>
+                        <div class="m-value" id="stat-total-data">0 MB</div>
+                        <div class="m-sub">Downstream total</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Error Rate</div>
+                        <div class="m-value" id="stat-error-rate">0%</div>
+                        <div class="m-sub">4xx & 5xx responses</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="m-label">Active Domains</div>
+                        <div class="m-value" id="stat-active-domains">0</div>
+                        <div class="m-sub">Registered rules</div>
+                    </div>
+                </div>
+
+                <div class="metrics-section">
+                    <h3>Traffic Health (Status Codes)</h3>
+                    <div class="status-dist-container">
+                        <div class="status-bar" id="status-distribution-bar">
+                            <!-- Segmented bar via JS -->
+                        </div>
+                        <div class="status-legend">
+                            <span class="leg-item"><i class="dot s2"></i> 2xx</span>
+                            <span class="leg-item"><i class="dot s3"></i> 3xx</span>
+                            <span class="leg-item"><i class="dot s4"></i> 4xx</span>
+                            <span class="leg-item"><i class="dot s5"></i> 5xx</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- View: Certificates (Hidden by default) -->
+        <div id="view-certificates" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Managed Certificates</h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="refresh-certs-btn" class="btn" title="Refresh certificate list">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <p class="section-hint">Certificates identified by the Go engine in the <code>certs/</code> directory. Use them with "Straws Engine" rules.</p>
+                <div id="certs-list" class="certs-grid">
+                    <!-- Dynamic cert cards here -->
+                </div>
+            </div>
+        </div>
+        <!-- View: Leaves (Hidden by default) -->
+        <div id="view-leaves" class="view-container hidden">
+            <header class="view-header">
+                <div class="header-title">
+                    <h2>Active Leaves <span class="count-badge" id="leaf-count">0</span></h2>
+                </div>
+                <div class="header-toolbar">
+                    <button id="refresh-leaves-btn" class="btn" title="Refresh leaf inventory">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                </div>
+            </header>
+            <div class="metrics-content">
+                <p class="section-hint">Inventory of browser tabs and windows currently being monitored. "Pro" version supports remote identifiers.</p>
+                
+                <div id="leaves-inventory" class="leaves-grid">
+                    <!-- Dynamic leaf cards here -->
+                    <div class="insp-empty">
+                        <div class="insp-empty-icon">🍃</div>
+                        <p>Waiting for traffic logic to identify active leaves...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 3. Inspector Sidepanel -->
+    <article class="inspector" id="detail-panel">
+        <header class="insp-header">
+            <h3>Request Inspector</h3>
+            <button id="close-detail" class="btn">Close</button>
+        </header>
+        
+        <div id="no-selection" class="insp-empty">
+            <div class="insp-empty-icon">📂</div>
+            <p>Select a trace to inspect headers and payload</p>
+        </div>
+
+        <div id="request-details" class="hidden" style="height: 100%; display: flex; flex-direction: column;">
+            <div class="insp-tabs">
+                <div class="insp-tab active" data-tab="headers">Headers</div>
+                <div class="insp-tab" data-tab="payload">Payload</div>
+                <div class="insp-tab" data-tab="response">Response</div>
+                <div class="insp-tab" data-tab="timing">Timing</div>
+            </div>
+            
+            <div class="insp-body">
+                <div class="tab-panel active" id="tab-headers">
+                    <div id="source-indicator" style="margin-bottom: 12px; font-size: 0.8rem; padding: 8px; background: var(--bg-elevated); border-radius: 4px; border-left: 3px solid var(--accent-cyan);">
+                        <b>Source:</b> <span id="source-text">Unknown</span>
+                    </div>
+                    <pre id="header-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-payload">
+                    <pre id="payload-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-response">
+                    <pre id="response-data" class="code-view"></pre>
+                </div>
+                <div class="tab-panel hidden" id="tab-timing">
+                    <!-- Timing visualization could go here -->
+                    <div id="timing-view" class="code-view">Timing data visualization coming soon...</div>
+                </div>
+            </div>
+        </div>
+    </article>
+
+    <script src="js/dashboard/dashboard.js" type="module"></script>
+
+    <!-- 4. Leaf Diagnostic Modal [NEW] -->
+    <div id="leaf-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">🍃</span>
+                    <div class="modal-titles">
+                        <h2 id="modal-leaf-title">Leaf Diagnostics</h2>
+                        <span id="modal-leaf-id" class="modal-subtitle">ID: unknown</span>
+                    </div>
+                </div>
+                <button id="close-modal" class="btn-close">&times;</button>
+            </header>
+            
+            <div class="modal-body">
+                <div class="modal-grid">
+                    <!-- Stats Column -->
+                    <div class="modal-stats-col">
+                        <div class="m-detail-card">
+                            <span class="m-label">Avg Latency</span>
+                            <span class="m-value" id="modal-avg-latency">0ms</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Error Rate</span>
+                            <span class="m-value" id="modal-error-rate">0%</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Data Vol.</span>
+                            <span class="m-value" id="modal-data-vol">0 MB</span>
+                        </div>
+                        <div class="m-detail-card">
+                            <span class="m-label">Total Requests</span>
+                            <span class="m-value" id="modal-total-req">0</span>
+                        </div>
+                        <div id="chaos-status-indicator" class="chaos-active-hint hidden">
+                            <span class="pulse">🌀</span> Chaos Active
+                        </div>
+                    </div>
+                    
+                    <!-- Analysis Column -->
+                    <div class="modal-analysis-col">
+                        <div class="analysis-section">
+                            <h4>Top Domains</h4>
+                            <div id="modal-top-domains" class="domain-list">
+                                <!-- Dynamic domain list -->
+                            </div>
+                        </div>
+                        <div class="analysis-section">
+                            <h4>Cyber-Laboratory (Chaos & Alerts)</h4>
+                            <div class="action-grid">
+                                <button id="strobe-btn" class="btn btn-alert full-width">
+                                    <span class="icon">🚨</span> Ping Leaf (Visual Strobe)
+                                </button>
+                                
+                                <div class="chaos-selectors">
+                                    <div class="selector-title">Simulation Modes</div>
+                                    <div class="chaos-buttons">
+                                        <button class="chaos-mode-btn" data-mode="latency" title="Add 500ms delay">
+                                            <span class="icon">⏲️</span> Latency
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="jitter" title="Random delay 0-1s">
+                                            <span class="icon">🎲</span> Jitter
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="drop" title="Force 10% drops">
+                                            <span class="icon">✂️</span> Drop
+                                        </button>
+                                        <button class="chaos-mode-btn" data-mode="error" title="Inject 5% Error 500">
+                                            <span class="icon">🔥</span> Error
+                                        </button>
+                                    </div>
+                                    <button id="clear-chaos-btn" class="btn btn-small btn-warning full-width" style="margin-top: 8px;">
+                                        Reset All Simulation
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Request Diff Modal -->
+    <div id="diff-modal" class="modal-overlay hidden">
+        <div class="modal-content diff-modal-content">
+            <header class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon diff-icon">⚖️</span>
+                    <div class="modal-titles">
+                        <h2>Request Diffing</h2>
+                        <span class="modal-subtitle">Side-by-side comparison</span>
+                    </div>
+                </div>
+                <button id="close-diff-modal" class="btn-close">&times;</button>
+            </header>
+            
+            <div class="diff-body">
+                <!-- Older Request Pane -->
+                <div class="diff-pane">
+                    <div class="diff-pane-title">Request A (Older)</div>
+                    <div class="diff-view-content" id="diff-older-content">
+                        <!-- Diff engine output gets injected here -->
+                    </div>
+                </div>
+                <!-- Newer Request Pane -->
+                <div class="diff-pane">
+                    <div class="diff-pane-title">Request B (Newer)</div>
+                    <div class="diff-view-content" id="diff-newer-content">
+                        <!-- Diff engine output gets injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
