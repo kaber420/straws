@@ -22,6 +22,26 @@ Actuando como una "Transmisión Manual", te permite observar, pausar, modificar 
 *   **Integración Transparente con el Motor Go:**
     Envía y recibe datos complejos de telemetría a través del proxy binario `straws-core` usando comunicaciones de ultra-baja latencia (Native Messaging).
 
+## 📸 Vista Previa (Screenshots)
+
+### Panel de Control y Dashboard
+![Dashboard](./assets/img/sidepanel+dashboard.png)
+
+### Gestión de Pestañas (Leaves)
+| Lista de Leaves | Detalles de Pestaña |
+| :---: | :---: |
+| ![Leaves](./assets/img/leaves.png) | ![Detalles](./assets/img/leave-details.png) |
+
+### Análisis de Red y Métricas
+| Cabeceras NT | Respuesta NT | Métricas |
+| :---: | :---: | :---: |
+| ![Headers](./assets/img/nt-headers.png) | ![Response](./assets/img/ntresponse.png) | ![Métricas](./assets/img/metricas.png) |
+
+### Herramientas Avanzadas
+| Certificados | SNI Auto | Configuración Strawberry |
+| :---: | :---: | :---: |
+| ![Cert Manager](./assets/img/certificatesmanager.png) | ![SNI Auto](./assets/img/sniauto.png) | ![Add Straw](./assets/img/add+set%20straw.png) |
+
 ## 🏢 Arquitectura "Team-Ready" (Visión a Futuro)
 La arquitectura descentralizada de Straws (Navegador ↔ Proxy Engine) está diseñada pensando en la colaboración. En el futuro, permitirá que múltiples desarrolladores utilicen la extensión como "agentes", enviando tráfico selectivo a un Proxy Manager centralizado para que los equipos de QA e Ingeniería puedan depurar colaborativamente en tiempo real.
 
@@ -63,5 +83,5 @@ npm run test:firefox    # Ejecuta las pruebas automatizadas con Puppeteer en Fir
 ```
 
 ## 🛡️ Licencia
-straws-engine AGPL-3.0
 straws GPL-3.0
+straws-engine AGPL-3.0
