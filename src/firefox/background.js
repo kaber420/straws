@@ -212,7 +212,7 @@ function getNativePort() {
           syncRules();
         });
       }
-      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
+      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http" || msg.type === "tls_handshake") {
         if (bgState.isEngineLogActive) {
           const url = msg.url || msg.host;
           const reqHeaders = msg.headers?.request || {};
@@ -225,23 +225,24 @@ function getNativePort() {
           let tabId, windowId, leafTitle;
           if (leafHeader && typeof leafHeader === 'string') {
             const parts = leafHeader.split('-');
-            // Support both "win-tab" and "tab" formats
             tabId = parseInt(parts[parts.length - 1]);
-            windowId = parts.length > 1 ? parseInt(parts[0]) : null;
-
-            // If windowId is missing or -1, try to restore from cache
-            if (windowId === null || windowId === -1 || isNaN(windowId)) {
-              const cached = tabInfoCache.get(tabId);
-              if (cached && cached.windowId !== -1) windowId = cached.windowId;
-            }
+            windowId = parts.length > 1 ? parseInt(parts[0]) : -1;
             
-            const cachedArr = Array.from(tabInfoCache.entries()).find(([id]) => id === tabId);
-            if (cachedArr) leafTitle = cachedArr[1].title;
+            // AGGRESSIVE RESOLUTION: If window is unknown, try to find it now
+            if (windowId === -1 || isNaN(windowId)) {
+                const refreshedInfo = await getTabInfo(tabId);
+                windowId = refreshedInfo.windowId !== null ? refreshedInfo.windowId : -1;
+                leafTitle = refreshedInfo.title;
+            } else {
+                const cached = tabInfoCache.get(tabId);
+                if (cached) leafTitle = cached.title;
+            }
           } else {
             const enriched = urlToTabMap.get(normalizeUrl(url)) || {};
             tabId = enriched.tabId !== undefined ? enriched.tabId : -1;
-            windowId = (enriched.windowId !== undefined && enriched.windowId !== -1) ? enriched.windowId : null;
-            leafTitle = enriched.title || 'System';
+            const refreshedInfo = await getTabInfo(tabId);
+            windowId = refreshedInfo.windowId !== null ? refreshedInfo.windowId : -1;
+            leafTitle = refreshedInfo.title || 'System';
           }
 
           let size = msg.size || "-";
@@ -256,8 +257,8 @@ function getNativePort() {
           
           await sendLog({
             url: msg.url || msg.host || msg.message || msg.error,
-            method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
-            status: msg.status || (msg.success === false ? "Error" : "Info"),
+            method: msg.type === "tls_handshake" ? "TLS" : (msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG"))),
+            status: msg.type === "tls_handshake" ? "Handshake" : (msg.status || (msg.success === false ? "Error" : "Info")),
             ip: msg.ip || "-",
             latency: msg.latency || "-",
             from: msg.from || (msg.type === "log" ? "Straws Engine" : "Native"),
@@ -269,7 +270,8 @@ function getNativePort() {
             headers: msg.headers || null,
             payload: msg.payload !== undefined && msg.payload !== null ? msg.payload : null,
             response: msg.response !== undefined && msg.response !== null ? msg.response : null,
-            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0)
+            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0),
+            tlsInfo: msg.tls || null  // TLS Handshake Inspector data
           });
         }
       }
@@ -337,8 +339,37 @@ function generatePACScript(rules) {
   `;
 }
 
-// Firefox listener optimized with background cache
-function handleFirefoxProxy(requestInfo) {
+// Firefox identity serializer for Proxy-Authorization
+async function encodeIdentity(tabId) {
+  if (tabId < 0) return "type:system";
+  
+  const tabInfo = await getTabInfo(tabId);
+  const winId = (tabInfo.windowId !== undefined && tabInfo.windowId !== null) ? tabInfo.windowId : -1;
+  const chaosMode = bgState.leafChaosModes.get(tabId) || "";
+  
+  let identity = `win:${winId}|tab:${tabId}`;
+  
+  // Add container info if available in cache
+  if (tabInfo.cookieStoreId && tabInfo.cookieStoreId !== 'firefox-default') {
+    try {
+      // We try to get from cache if we can, but since this is async, 
+      // we might just use the raw cookieStoreId if not yet resolved.
+      const container = await getContainerInfo(tabId);
+      if (container) {
+        identity += `|cont:${container.name}|color:${container.colorCode}`;
+      }
+    } catch (e) {}
+  }
+  
+  if (chaosMode) {
+    identity += `|chaos:${chaosMode}`;
+  }
+  
+  return identity;
+}
+
+// Firefox listener optimized with proxy authentication for identity
+async function handleFirefoxProxy(requestInfo) {
   if (!bgState.masterSwitch) return { type: "direct" };
 
   const url = new URL(requestInfo.url);
@@ -355,7 +386,16 @@ function handleFirefoxProxy(requestInfo) {
       proxyPort = parseInt(parts[1]) || 5783;
     }
 
-    return { type: "http", host: proxyHost, port: proxyPort };
+    // Generate identity for Proxy-Authorization
+    const identity = await encodeIdentity(requestInfo.tabId);
+
+    return { 
+      type: "http", 
+      host: proxyHost, 
+      port: proxyPort,
+      username: identity,
+      password: "straws" // Standard dummy password for Straws Proxy Auth
+    };
   }
 
   return { type: "direct" };
@@ -420,13 +460,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else {
       bgState.leafChaosModes.delete(tabId);
     }
-    // Refresh tagging to apply/remove chaos header
-    setupLeafTagging(tabId, true);
+    // No longer need to refresh tagging, Proxy-Auth handles it dynamically
     sendResponse({ success: true });
     return false;
   }
   if (message.type === 'REFRESH_TAGS') {
-    refreshAllLeafTagging();
+    // Legacy support: Tags are now handled via Proxy-Auth
     sendResponse({ success: true });
     return false;
   }
@@ -492,13 +531,7 @@ async function launchIsolatedLeaf() {
 }
 
 async function refreshAllLeafTagging() {
-  const tabs = await browser.tabs.query({});
-  for (const tab of tabs) {
-    if (tab.id >= 0) {
-      await setupLeafTagging(tab.id, true);
-    }
-  }
-  console.log(`[Identity] Refreshed tagging for ${tabs.length} tabs.`);
+  console.log(`[Identity] Identity is now handled via Proxy Authentication.`);
 }
 
 browser.storage.onChanged.addListener((changes, area) => {
@@ -595,35 +628,40 @@ const MAX_BUFFER = 100;
 
 async function getTabInfo(tabId) {
   if (tabId < 0) return { title: 'Background', url: '', windowId: -1 };
-  if (tabInfoCache.has(tabId)) return tabInfoCache.get(tabId);
+  
+  // Only trust cache if windowId is resolved
+  if (tabInfoCache.has(tabId)) {
+      const cached = tabInfoCache.get(tabId);
+      if (cached.windowId !== -1 && cached.windowId !== null) return cached;
+  }
 
   try {
     const tab = await browser.tabs.get(tabId);
     const info = { 
-      title: tab.title || 'Untitled', 
+      title: tab.title || 'Untitled Tab', 
       url: tab.url || '', 
-      windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null,
+      windowId: (tab.windowId !== undefined && tab.windowId !== null && tab.windowId !== -1) ? tab.windowId : -1,
       cookieStoreId: tab.cookieStoreId
     };
     tabInfoCache.set(tabId, info);
     return info;
   } catch (e) {
-    // Fallback: try to find the tab by ID in all windows if get fails
+    // Fallback: search all tabs
     try {
       const tabs = await browser.tabs.query({});
       const tab = tabs.find(t => t.id === tabId);
       if (tab) {
         const info = {
-          title: tab.title || 'Untitled',
+          title: tab.title || 'Untitled Tab',
           url: tab.url || '',
-          windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null,
+          windowId: (tab.windowId !== undefined && tab.windowId !== null && tab.windowId !== -1) ? tab.windowId : -1,
           cookieStoreId: tab.cookieStoreId
         };
         tabInfoCache.set(tabId, info);
         return info;
       }
     } catch (e2) {}
-    return { title: 'Detached Tab', url: '', windowId: null };
+    return { title: 'External Tab', url: '', windowId: -1 };
   }
 }
 
@@ -639,7 +677,6 @@ async function syncTabCache() {
         windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : -1,
         cookieStoreId: tab.cookieStoreId
       });
-      if (tab.id >= 0) setupLeafTagging(tab.id);
     }
     console.log(`[Identity] Sync complete. Tracking ${tabInfoCache.size} tabs.`);
   } catch (e) {
@@ -655,7 +692,6 @@ browser.tabs.onCreated.addListener(async (tab) => {
     windowId: tab.windowId,
     cookieStoreId: tab.cookieStoreId
   });
-  setupLeafTagging(tab.id);
 });
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -666,12 +702,10 @@ browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       windowId: tab.windowId,
       cookieStoreId: tab.cookieStoreId
     });
-    setupLeafTagging(tabId, true);
   }
 });
 
 browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
-  const tab = await browser.tabs.get(tabId);
   tabInfoCache.set(tabId, {
     title: tab.title || 'Untitled',
     url: tab.url || '',
@@ -679,21 +713,14 @@ browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
     cookieStoreId: tab.cookieStoreId
   });
   console.log(`[Identity] Tab ${tabId} moved to window ${attachInfo.newWindowId}`);
-  setupLeafTagging(tabId, true);
 });
 
 browser.tabs.onActivated.addListener(async (activeInfo) => {
-  setupLeafTagging(activeInfo.tabId, true);
+  // Identity is now handled via Proxy-Auth, which catches the tabId directly
 });
 
 browser.tabs.onRemoved.addListener((tabId) => {
   tabInfoCache.delete(tabId);
-  if (bgState.leafRulesApplied.has(tabId)) {
-    browser.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [tabId + 10000]
-    });
-    bgState.leafRulesApplied.delete(tabId);
-  }
 });
 
 // Helper to send logs to UI
@@ -715,83 +742,11 @@ async function sendLog(log) {
   }).catch(() => { /* No listeners active */ });
 }
 
-async function setupLeafTagging(tabId, force = false) {
-  if (tabId < 0 || (bgState.leafRulesApplied.has(tabId) && !force)) return;
-  
-  try {
-    const tabInfo = await getTabInfo(tabId);
-    let winId = (tabInfo.windowId !== undefined && tabInfo.windowId !== null) ? tabInfo.windowId : -1;
-    
-    // Identity verification (No more fallbacks)
-    if (winId === -1 || winId === null) {
-       const tab = await browser.tabs.get(tabId).catch(() => null);
-       if (tab && tab.windowId !== undefined) {
-         winId = tab.windowId;
-         tabInfoCache.set(tabId, { ...tabInfo, windowId: winId });
-       }
-    }
-
-    const ruleId = tabId + 10000; 
-    
-    const container = await getContainerInfo(tabId);
-    const chaosMode = bgState.leafChaosModes.get(tabId);
-    const headers = [{
-      header: 'X-Straws-Leaf',
-      operation: 'set',
-      value: `${winId}-${tabId}`
-    }];
-
-    if (container) {
-      headers.push({
-        header: 'X-Straws-Container-Name',
-        operation: 'set',
-        value: container.name
-      });
-      headers.push({
-        header: 'X-Straws-Container-Color',
-        operation: 'set',
-        value: container.colorCode
-      });
-    }
-
-    if (chaosMode) {
-      headers.push({
-        header: 'X-Straws-Chaos',
-        operation: 'set',
-        value: chaosMode
-      });
-    }
-
-    await browser.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [ruleId],
-      addRules: [{
-        id: ruleId,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: headers
-        },
-        condition: {
-          tabIds: [tabId],
-          resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
-        }
-      }]
-    });
-    bgState.leafRulesApplied.add(tabId);
-  } catch (e) {
-    console.debug(`Could not setup tagging for tab ${tabId}:`, e);
-  }
-}
+// setupLeafTagging was here (now handled via Proxy-Auth)
 
 // Cleanup rules when tab is closed
 browser.tabs.onRemoved.addListener((tabId) => {
-  if (bgState.leafRulesApplied.has(tabId)) {
-    browser.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [tabId + 10000]
-    });
-    bgState.leafRulesApplied.delete(tabId);
-  }
-  // Delayed removal from tabInfoCache is handled by the primary onRemoved listener
+  // tabInfoCache cleanup is handled by the primary onRemoved listener
 });
 
 // Update tagging on new requests or tab updates handled by event listeners
@@ -800,8 +755,7 @@ browser.webRequest.onBeforeRequest.addListener(
   async (details) => {
     if (!bgState.isBrowserLogActive && !bgState.isEngineLogActive) return;
     
-    // Ensure tagging is active for this tab
-    if (details.tabId >= 0) setupLeafTagging(details.tabId);
+    // Identity is now handled via Proxy-Auth directly in handleFirefoxProxy
 
     const tabInfo = await getTabInfo(details.tabId);
     urlToTabMap.set(normalizeUrl(details.url), { 

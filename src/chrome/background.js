@@ -210,7 +210,7 @@ function getNativePort() {
         bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
         updateProxySettings(bgState.rules, bgState.masterSwitch);
       }
-      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
+      if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http" || msg.type === "tls_handshake") {
         if (bgState.isEngineLogActive) {
           const url = msg.url || msg.host;
           const reqHeaders = msg.headers?.request || {};
@@ -254,8 +254,8 @@ function getNativePort() {
           
           sendLog({
             url: msg.url || msg.host || msg.message || msg.error,
-            method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
-            status: msg.status || (msg.success === false ? "Error" : "Info"),
+            method: msg.type === "tls_handshake" ? "TLS" : (msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG"))),
+            status: msg.type === "tls_handshake" ? "Handshake" : (msg.status || (msg.success === false ? "Error" : "Info")),
             ip: msg.ip || "-",
             latency: msg.latency || "-",
             from: msg.from || (msg.type === "log" ? "Straws Engine" : "Native"),
@@ -267,7 +267,8 @@ function getNativePort() {
             headers: msg.headers || null,
             payload: msg.payload !== undefined && msg.payload !== null ? msg.payload : null,
             response: msg.response !== undefined && msg.response !== null ? msg.response : null,
-            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0)
+            hasPayload: (msg.payload && msg.payload.length > 0) || (msg.response && msg.response.length > 0),
+            tlsInfo: msg.tls || null  // TLS Handshake Inspector data
           });
         }
       }

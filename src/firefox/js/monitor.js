@@ -27,9 +27,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function createLogEntry(log) {
         const div = document.createElement('div');
-        div.className = `log ${log.status === 'Error' ? 'warn' : ''}`;
+        const isTLS = log.type === 'tls_handshake';
+        div.className = `log ${log.status === 'Error' ? 'warn' : ''} ${isTLS ? 'log-tls' : ''}`;
         
-        // Color status codes
+        // Color status codes (skip for TLS entries)
         let statusClass = 'status-other';
         if (typeof log.status === 'number') {
             if (log.status >= 200 && log.status < 300) statusClass = 'status-2xx';
@@ -38,18 +39,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const fromClass = (log.from === 'Straws Engine') ? 'from-straw' : 'from-direct';
-        const displayUrl = shortenURL(log.url);
+        const displayUrl = isTLS ? log.url : shortenURL(log.url);
+
+        // For TLS entries, show version badge instead of generic type
+        const versionBadge = isTLS && log.tlsInfo
+            ? `<span class="tls-version-pill tls-v-${log.tlsInfo.tls_version.replace(/[\s.]/g,'-')}">${log.tlsInfo.tls_version}</span>`
+            : log.type;
 
         div.innerHTML = `
             <span class="time">${log.timestamp}</span>
             <span class="from ${fromClass}">[${log.from || 'Direct'}]</span>
-            <span class="method">${log.method}</span>
+            <span class="method ${isTLS ? 'method-tls' : ''}">${isTLS ? '🔒 TLS' : log.method}</span>
             <span class="url" title="${log.url}">${displayUrl}</span>
             <div class="log-details">
                 <span class="latency">${log.latency}</span>
                 <span class="ip">${log.ip}</span>
                 <span class="status ${statusClass}">${log.status}</span>
-                <span class="type">${log.type}</span>
+                <span class="type">${versionBadge}</span>
                 <span class="size">${log.size}</span>
             </div>
         `;
@@ -60,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showLogDetails(log) {
+        const isTLS = log.type === 'tls_handshake';
         const formatBody = (body) => {
             if (!body) return "";
             if (typeof body === 'string' && body.trim() === "") return "";
@@ -75,6 +82,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const response = formatBody(log.response);
         const headers = log.headers ? JSON.stringify(log.headers, null, 2) : "";
 
+        // TLS Inspector panel (only for tls_handshake entries)
+        let tlsPanel = '';
+        if (isTLS && log.tlsInfo) {
+            const t = log.tlsInfo;
+            const vClass = `tls-version-badge tls-v-${t.tls_version.replace(/[\s.]/g, '-')}`;
+            tlsPanel = `
+<div class="tls-inspector-section">
+    <div class="tls-inspector-header">🔒 TLS Handshake Inspector</div>
+    <div class="tls-field"><span class="tls-label">SNI</span><code class="tls-value">${t.sni}</code></div>
+    <div class="tls-field">
+        <span class="tls-label">Version</span>
+        <span class="${vClass}">${t.tls_version}</span>
+    </div>
+    <div class="tls-field"><span class="tls-label">Cipher Suite</span><code class="tls-value">${t.cipher_suite}</code></div>
+    <div class="tls-field"><span class="tls-label">Protocol (ALPN)</span><code class="tls-value">${t.negotiated_protocol || 'http/1.1'}</code></div>
+    <div class="tls-field"><span class="tls-label">Peer Certs</span><span class="tls-value">${t.peer_certs}</span></div>
+</div>`;
+        }
+
         logOverlayContent.innerHTML = `
 <div class="detail-row"><span class="label">Timestamp:</span>${log.timestamp}</div>
 <div class="detail-row"><span class="label">From:</span>${log.from}</div>
@@ -89,6 +115,7 @@ ${headers ? `<div class="detail-section"><span class="label">Headers:</span><pre
 ${payload ? `<div class="detail-section"><span class="label">Payload:</span><pre class="code-view">${payload}</pre></div>` : ''}
 ${response ? `<div class="detail-section"><span class="label">Response:</span><pre class="code-view">${response}</pre></div>` : ''}
 ${log.error ? `<div class="detail-row"><span class="label">Error:</span>${log.error}</div>` : ''}
+${tlsPanel}
 `.trim();
         logOverlay.classList.add('active');
     }

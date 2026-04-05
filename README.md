@@ -38,7 +38,7 @@ Actuando como una "Transmisión Manual", te permite observar, pausar, modificar 
 | ![Headers](./assets/img/nt-headers.png) | ![Response](./assets/img/ntresponse.png) | ![Métricas](./assets/img/metricas.png) |
 
 ### Herramientas Avanzadas
-| Certificados | SNI Auto | Configuración Strawberry |
+| Certificados | SNI Auto | Configuración Straws |
 | :---: | :---: | :---: |
 | ![Cert Manager](./assets/img/certificatesmanager.png) | ![SNI Auto](./assets/img/sniauto.png) | ![Add Straw](./assets/img/add+set%20straw.png) |
 

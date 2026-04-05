@@ -315,6 +315,27 @@ export function selectRow(id) {
                 ℹ️ Waterfall visualization details provided by Engine telemetry.
             </div>`.trim();
     }
+
+    // TLS Inspector tab — always update when selecting any row
+    const tlsView = document.getElementById('tls-inspector-view');
+    if (tlsView) {
+        if (log.type === 'tls_handshake' && log.tlsInfo) {
+            const t = log.tlsInfo;
+            const versionLabel = t.tls_version;
+            tlsView.innerHTML = `
+                <div class="inspector-section-title">🔒 TLS Handshake</div>
+                <table class="kv-table">
+                    <tr><td class="key">SNI</td><td class="value">${t.sni}</td></tr>
+                    <tr><td class="key">Version</td><td class="value"><span class="tls-version-badge tls-v-${versionLabel.replace(/[\s.]/g, '-')}">${versionLabel}</span></td></tr>
+                    <tr><td class="key">Cipher Suite</td><td class="value">${t.cipher_suite}</td></tr>
+                    <tr><td class="key">ALPN Protocol</td><td class="value">${t.negotiated_protocol || 'http/1.1'}</td></tr>
+                    <tr><td class="key">Peer Certificates</td><td class="value">${t.peer_certs}</td></tr>
+                    <tr><td class="key">Handshake Time</td><td class="value">${log.latency}</td></tr>
+                </table>`;
+        } else {
+            tlsView.innerHTML = `<div class="insp-empty-hint">No TLS data — select a 🔒 TLS Handshake entry to inspect negotiation details.</div>`;
+        }
+    }
 }
 
 export function updateMetricsUI() {
