@@ -7,7 +7,7 @@ import { provider } from './provider.js';
 import { fetchCertificates, deleteCertificate } from './certificates.js';
 import {
     renderLeavesInventory, closeLeafModal, strobeLeaf,
-    setLeafChaos, resetAllSimulations
+    setLeafChaos, resetAllSimulations, launchIsolatedLeaf
 } from './leaves.js';
 import {
     updateRecordUI, updateBrowserUI, updateEngineUI,
@@ -248,6 +248,10 @@ if (dom.clearChaosBtn) {
 
 if (dom.refreshLeavesBtn) {
     dom.refreshLeavesBtn.addEventListener('click', renderLeavesInventory);
+}
+
+if (dom.launchIsolatedBtn) {
+    dom.launchIsolatedBtn.addEventListener('click', launchIsolatedLeaf);
 }
 
 browser.runtime.sendMessage({ type: 'REFRESH_TAGS' }).catch(() => {});

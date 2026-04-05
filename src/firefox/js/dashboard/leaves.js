@@ -25,15 +25,22 @@ export function renderLeavesInventory() {
     list.innerHTML = sortedLeaves.map(leaf => {
         const displayTitle = leaf.title || 'Untitled Session';
         const isBackground = leaf.tabId < 0;
+        const container = leaf.container;
+        const containerHtml = container ? `
+            <div class="leaf-container-tag" style="--container-color: ${container.colorCode}">
+                ${container.name}
+            </div>
+        ` : '';
 
         return `
-            <div class="leaf-card" data-id="${leaf.id}">
+            <div class="leaf-card ${container ? 'has-container' : ''}" data-id="${leaf.id}" style="--container-color: ${container ? container.colorCode : ''}">
                 ${leaf.id.includes('multi') ? '<span class="leaf-pro-badge">PRO</span>' : ''}
                 <div class="leaf-header">
-                    <div class="leaf-icon">${isBackground ? '⚙️' : '📑'}</div>
+                    <div class="leaf-icon" style="border-right: 2px solid ${container ? container.colorCode : 'transparent'}">${isBackground ? '⚙️' : '📑'}</div>
                     <div class="leaf-meta">
                         <span class="leaf-title" title="${displayTitle}">${displayTitle}</span>
                         <span class="leaf-id">ID: ${leaf.windowId !== null && leaf.windowId !== -1 ? leaf.windowId : '?'}-${leaf.tabId}</span>
+                        ${containerHtml}
                     </div>
                 </div>
                 <div class="leaf-meta-row">
@@ -210,4 +217,19 @@ export function resetAllSimulations() {
         updateChaosUI(null);
         browser.runtime.sendMessage({ type: 'SET_LEAF_CHAOS', tabId: leaf.tabId, mode: null }).catch(() => {});
     }
+}
+
+export function launchIsolatedLeaf() {
+    browser.runtime.sendMessage({ type: 'LAUNCH_ISOLATED_LEAF' })
+        .then(res => {
+            if (res.success) {
+                console.log("[Leaves] New isolated leaf launched:", res.tabId);
+            } else {
+                console.error("[Leaves] Failed to launch isolated leaf:", res.error);
+                alert("Error launching isolated leaf: " + res.error);
+            }
+        })
+        .catch(err => {
+            console.error("[Leaves] Messaging error:", err);
+        });
 }

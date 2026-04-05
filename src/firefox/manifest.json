@@ -18,7 +18,9 @@
     "alarms",
     "nativeMessaging",
     "scripting",
-    "tabs"
+    "tabs",
+    "contextualIdentities",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>"

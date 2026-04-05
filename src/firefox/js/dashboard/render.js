@@ -42,6 +42,7 @@ export function updateMetrics(log) {
                 tabId: log.tabId,
                 windowId: log.windowId,
                 title: log.leafTitle || 'Untitled',
+                container: log.container || null,
                 count: 0,
                 bytes: 0,
                 lastSeen: Date.now(),
@@ -56,6 +57,7 @@ export function updateMetrics(log) {
         leaf.count++;
         leaf.lastSeen = Date.now();
         leaf.title = log.leafTitle || leaf.title;
+        if (log.container) leaf.container = log.container;
 
         const latMatch = log.latency ? log.latency.match(/([\d\.]+)(ms|s)/) : null;
         if (latMatch) {
@@ -159,6 +161,7 @@ export function renderLogRow(log) {
         <td class="col-time">${log.timestamp || ''}</td>
         <td class="col-method ${log.method}">${log.method}</td>
         <td class="col-url" title="${log.url}">
+            ${log.container ? `<span class="container-badge" style="border-color: ${log.container.colorCode}; color: ${log.container.colorCode}">${log.container.name}</span>` : ''}
             ${log.hasPayload ? '<span class="payload-badge" title="Full Content Available">📦</span> ' : ''}
             ${shortenUrl(log.url)}
         </td>

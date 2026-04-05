@@ -202,13 +202,15 @@ function getNativePort() {
       bgState.nativePort = null;
     });
 
-    bgState.nativePort.onMessage.addListener((msg) => {
+    bgState.nativePort.onMessage.addListener(async (msg) => {
       if (msg.type === "ready" && msg.port) {
         console.log("Straws Engine synchronized on port:", msg.port);
         // Normalize port format (ensure it's just the number or 127.0.0.1:port)
         const portClean = msg.port.replace(":", "");
         bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
-        updateProxySettings(bgState.rules, bgState.masterSwitch);
+        updateProxySettings(bgState.rules, bgState.masterSwitch).then(() => {
+          syncRules();
+        });
       }
       if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http") {
         if (bgState.isEngineLogActive) {
@@ -252,7 +254,7 @@ function getNativePort() {
              }
           }
           
-          sendLog({
+          await sendLog({
             url: msg.url || msg.host || msg.message || msg.error,
             method: msg.method || (msg.type === "tls_match" ? "MATCH" : (msg.type === "tls_error" ? "SSL-FAIL" : "LOG")),
             status: msg.status || (msg.success === false ? "Error" : "Info"),
@@ -324,7 +326,7 @@ async function updateProxySettings(rulesObj, masterSwitch) {
 
 function generatePACScript(rules) {
   const cases = rules.map(rule => {
-    return `if (shExpMatch(host, "${rule.source}")) return "PROXY 127.0.0.1:5782";`;
+    return `if (shExpMatch(host, "${rule.source}")) return "PROXY 127.0.0.1:5783";`;
   }).join('\n    ');
 
   return `
@@ -345,12 +347,12 @@ function handleFirefoxProxy(requestInfo) {
 
   if (matchingRule) {
     let proxyHost = "127.0.0.1";
-    let proxyPort = 5782;
+    let proxyPort = 5783; // Firefox engine port
 
     if (bgState.remoteEngineUrl) {
       const parts = bgState.remoteEngineUrl.split(':');
       proxyHost = parts[0];
-      proxyPort = parseInt(parts[1]) || 5782;
+      proxyPort = parseInt(parts[1]) || 5783;
     }
 
     return { type: "http", host: proxyHost, port: proxyPort };
@@ -428,7 +430,66 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return false;
   }
+  if (message.type === 'LAUNCH_ISOLATED_LEAF') {
+    launchIsolatedLeaf().then(tab => sendResponse({ success: true, tabId: tab.id }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
+
+async function getContainerInfo(tabId) {
+  if (tabId < 0) return null;
+  const cached = tabInfoCache.get(tabId);
+  if (!cached || !cached.cookieStoreId) return null;
+
+  if (cached.cookieStoreId === 'firefox-default') return null;
+
+  try {
+    const container = await browser.contextualIdentities.get(cached.cookieStoreId);
+    return {
+      name: container.name,
+      color: container.color,
+      colorCode: getContainerColorCode(container.color)
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function getContainerColorCode(color) {
+  const colors = {
+    'blue': '#37adff',
+    'turquoise': '#00c79a',
+    'green': '#51cd00',
+    'yellow': '#ffcb00',
+    'orange': '#ff9f00',
+    'red': '#ff613d',
+    'pink': '#ff4bda',
+    'purple': '#af51f5'
+  };
+  return colors[color] || '#808080';
+}
+
+async function launchIsolatedLeaf() {
+  const containers = await browser.contextualIdentities.query({});
+  const strawsContainers = containers.filter(c => c.name.startsWith('Straws Leaf'));
+  const nextId = strawsContainers.length + 1;
+  const name = `Straws Leaf ${nextId}`;
+  
+  // Choose sequence of colors
+  const colorList = ['blue', 'turquoise', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'];
+  const color = colorList[strawsContainers.length % colorList.length];
+
+  const container = await browser.contextualIdentities.create({
+    name: name,
+    color: color,
+    icon: 'fingerprint'
+  });
+
+  return await browser.tabs.create({
+    cookieStoreId: container.cookieStoreId
+  });
+}
 
 async function refreshAllLeafTagging() {
   const tabs = await browser.tabs.query({});
@@ -541,7 +602,8 @@ async function getTabInfo(tabId) {
     const info = { 
       title: tab.title || 'Untitled', 
       url: tab.url || '', 
-      windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
+      windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null,
+      cookieStoreId: tab.cookieStoreId
     };
     tabInfoCache.set(tabId, info);
     return info;
@@ -554,7 +616,8 @@ async function getTabInfo(tabId) {
         const info = {
           title: tab.title || 'Untitled',
           url: tab.url || '',
-          windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null
+          windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : null,
+          cookieStoreId: tab.cookieStoreId
         };
         tabInfoCache.set(tabId, info);
         return info;
@@ -573,7 +636,8 @@ async function syncTabCache() {
       tabInfoCache.set(tab.id, {
         title: tab.title || 'Untitled',
         url: tab.url || '',
-        windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : -1
+        windowId: (tab.windowId !== undefined && tab.windowId !== null) ? tab.windowId : -1,
+        cookieStoreId: tab.cookieStoreId
       });
       if (tab.id >= 0) setupLeafTagging(tab.id);
     }
@@ -588,7 +652,8 @@ browser.tabs.onCreated.addListener(async (tab) => {
   tabInfoCache.set(tab.id, {
     title: tab.title || 'Untitled',
     url: tab.url || '',
-    windowId: tab.windowId
+    windowId: tab.windowId,
+    cookieStoreId: tab.cookieStoreId
   });
   setupLeafTagging(tab.id);
 });
@@ -598,7 +663,8 @@ browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     tabInfoCache.set(tabId, {
       title: tab.title || 'Untitled',
       url: tab.url || '',
-      windowId: tab.windowId
+      windowId: tab.windowId,
+      cookieStoreId: tab.cookieStoreId
     });
     setupLeafTagging(tabId, true);
   }
@@ -609,7 +675,8 @@ browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
   tabInfoCache.set(tabId, {
     title: tab.title || 'Untitled',
     url: tab.url || '',
-    windowId: attachInfo.newWindowId
+    windowId: attachInfo.newWindowId,
+    cookieStoreId: tab.cookieStoreId
   });
   console.log(`[Identity] Tab ${tabId} moved to window ${attachInfo.newWindowId}`);
   setupLeafTagging(tabId, true);
@@ -630,10 +697,12 @@ browser.tabs.onRemoved.addListener((tabId) => {
 });
 
 // Helper to send logs to UI
-function sendLog(log) {
+async function sendLog(log) {
+  const container = await getContainerInfo(log.tabId);
   const entry = {
     timestamp: new Date().toLocaleTimeString(),
-    ...log
+    ...log,
+    container: container
   };
   
   // Push to buffer
@@ -664,12 +733,26 @@ async function setupLeafTagging(tabId, force = false) {
 
     const ruleId = tabId + 10000; 
     
+    const container = await getContainerInfo(tabId);
     const chaosMode = bgState.leafChaosModes.get(tabId);
     const headers = [{
       header: 'X-Straws-Leaf',
       operation: 'set',
       value: `${winId}-${tabId}`
     }];
+
+    if (container) {
+      headers.push({
+        header: 'X-Straws-Container-Name',
+        operation: 'set',
+        value: container.name
+      });
+      headers.push({
+        header: 'X-Straws-Container-Color',
+        operation: 'set',
+        value: container.colorCode
+      });
+    }
 
     if (chaosMode) {
       headers.push({
@@ -808,7 +891,7 @@ browser.webRequest.onCompleted.addListener(
 
       const tabInfo = await getTabInfo(req.tabId);
 
-      sendLog({
+      await sendLog({
         url: req.url,
         method: req.method,
         status: details.statusCode,
@@ -847,7 +930,7 @@ browser.webRequest.onErrorOccurred.addListener(
 
       const tabInfo = await getTabInfo(req.tabId);
 
-      sendLog({
+      await sendLog({
         url: req.url,
         method: req.method,
         status: 'Error',

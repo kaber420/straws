@@ -37,5 +37,6 @@ export const dom = {
     
     // Other
     refreshCertsBtn: document.getElementById('refresh-certs-btn'),
-    refreshLeavesBtn: document.getElementById('refresh-leaves-btn')
+    refreshLeavesBtn: document.getElementById('refresh-leaves-btn'),
+    launchIsolatedBtn: document.getElementById('launch-isolated-btn')
 };
