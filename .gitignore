@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Seguridad Straws (Bases de datos y Certificados)
+*.db
+*.db-journal
+*.pem
+*.key
+*.crt
+*.csr
+*.ext
+*.srl
