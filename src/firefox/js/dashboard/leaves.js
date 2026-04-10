@@ -166,6 +166,17 @@ export function updateChaosUI(activeMode) {
         btn.classList.toggle('active', btn.dataset.mode === activeMode);
     });
     
+    // Show/Hide params panel based on mode
+    if (dom.chaosParamsPanel) {
+        if (activeMode === 'latency' || activeMode === 'jitter') {
+            dom.chaosParamsPanel.classList.remove('hidden');
+            dom.latencyParam.classList.toggle('hidden', activeMode !== 'latency');
+            dom.jitterParam.classList.toggle('hidden', activeMode !== 'jitter');
+        } else {
+            dom.chaosParamsPanel.classList.add('hidden');
+        }
+    }
+
     if (dom.chaosStatusIndicator) {
         if (activeMode) {
             dom.chaosStatusIndicator.classList.remove('hidden');
@@ -185,29 +196,74 @@ export function getChaosIcon(mode) {
     return '🌀';
 }
 
-export function setLeafChaos(mode) {
+export function setLeafChaos(mode, isParamUpdate = false) {
     if (!state.activeDiagnosticId) return;
     const leaf = state.aggregatedStats.leaves.get(state.activeDiagnosticId);
     if (!leaf) return;
 
-    if (leaf.chaosMode === mode) {
-        leaf.chaosMode = null;
-    } else {
-        leaf.chaosMode = mode;
+    const previousMode = leaf.chaosMode;
+
+    if (!isParamUpdate) {
+        if (leaf.chaosMode === mode) {
+            leaf.chaosMode = null;
+        } else {
+            leaf.chaosMode = mode;
+        }
+        // Only trigger UI update if the mode actually changed (avoid re-animating panel)
+        if (previousMode !== leaf.chaosMode) {
+            updateChaosUI(leaf.chaosMode);
+        }
     }
 
-    updateChaosUI(leaf.chaosMode);
-    
+    // Read relevant valueMs from sliders
+    let valueMs = 0;
+    const activeMode = leaf.chaosMode;
+    if (activeMode === 'latency' && dom.latencySlider) {
+        valueMs = parseInt(dom.latencySlider.value);
+    } else if (activeMode === 'jitter' && dom.jitterSlider) {
+        valueMs = parseInt(dom.jitterSlider.value);
+    }
+
     browser.runtime.sendMessage({ 
         type: 'SET_LEAF_CHAOS', 
         tabId: leaf.tabId, 
         containerName: leaf.container ? leaf.container.name : null,
-        mode: leaf.chaosMode 
+        mode: activeMode || "none",
+        valueMs: valueMs
     }).catch(() => {});
     
-    if (leaf.chaosMode) {
-        console.log(`[Laboratory] Chaos Mode ${mode} enabled for leaf ${leaf.title}`);
+    if (activeMode && !isParamUpdate) {
+        console.log(`[Laboratory] Chaos Mode ${mode} enabled (${valueMs}ms) for leaf ${leaf.title}`);
     }
+}
+
+// Initialize Slider Listeners
+if (dom.latencySlider) {
+    dom.latencySlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (dom.latencyValueDisplay) dom.latencyValueDisplay.textContent = val;
+        e.target.style.setProperty('--slider-pct', ((val - 50) / (10000 - 50) * 100) + '%');
+        
+        // Update live without toggling
+        const leaf = state.aggregatedStats.leaves.get(state.activeDiagnosticId);
+        if (leaf && leaf.chaosMode === 'latency') {
+            setLeafChaos('latency', true);
+        }
+    });
+}
+
+if (dom.jitterSlider) {
+    dom.jitterSlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (dom.jitterValueDisplay) dom.jitterValueDisplay.textContent = val;
+        e.target.style.setProperty('--slider-pct', ((val - 50) / (5000 - 50) * 100) + '%');
+        
+        // Update live without toggling
+        const leaf = state.aggregatedStats.leaves.get(state.activeDiagnosticId);
+        if (leaf && leaf.chaosMode === 'jitter') {
+            setLeafChaos('jitter', true);
+        }
+    });
 }
 
 export function resetAllSimulations() {

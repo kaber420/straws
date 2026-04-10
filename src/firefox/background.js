@@ -578,7 +578,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
   if (message.type === 'SET_LEAF_CHAOS') {
-    const { tabId, mode, containerName } = message;
+    const { tabId, mode, containerName, valueMs } = message;
     const cleanTabId = Number(tabId);
     if (mode) {
       bgState.leafChaosModes[cleanTabId] = mode;
@@ -596,11 +596,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         command: "sync_chaos",
         tabId: cleanTabId,
         container: containerName || "",
-        mode: mode || "none"
+        mode: mode || "none",
+        valueMs: valueMs || 0
       });
     }
 
-    console.log(`[Identity] Chaos Mode '${mode}' SET for Tab ${cleanTabId} (Container: ${containerName})`);
+    console.log(`[Identity] Chaos Mode '${mode}' (${valueMs}ms) SET for Tab ${cleanTabId} (Container: ${containerName})`);
     sendResponse({ success: true });
     return false;
   }

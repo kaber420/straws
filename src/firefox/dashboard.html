@@ -312,19 +312,46 @@
                                 <div class="chaos-selectors">
                                     <div class="selector-title">Simulation Modes</div>
                                     <div class="chaos-buttons">
-                                        <button class="chaos-mode-btn" data-mode="latency" title="Add 500ms delay">
+                                        <button class="chaos-mode-btn" data-mode="latency" title="Add fixed delay">
                                             <span class="icon">⏲️</span> Latency
                                         </button>
-                                        <button class="chaos-mode-btn" data-mode="jitter" title="Random delay 0-1s">
+                                        <button class="chaos-mode-btn" data-mode="jitter" title="Random delay up to N ms">
                                             <span class="icon">🎲</span> Jitter
                                         </button>
-                                        <button class="chaos-mode-btn" data-mode="drop" title="Force 10% drops">
+                                        <button class="chaos-mode-btn" data-mode="drop" title="Drop connections">
                                             <span class="icon">✂️</span> Drop
                                         </button>
-                                        <button class="chaos-mode-btn" data-mode="error" title="Inject 5% Error 500">
+                                        <button class="chaos-mode-btn" data-mode="error" title="Inject HTTP 500">
                                             <span class="icon">🔥</span> Error
                                         </button>
                                     </div>
+
+                                    <!-- Chaos parameter sliders (shown conditionally) -->
+                                    <div id="chaos-params-panel" class="chaos-params-panel hidden">
+                                        <div id="latency-param" class="chaos-param-row hidden">
+                                            <div class="chaos-param-header">
+                                                <span class="chaos-param-label">⏲️ Delay fijo</span>
+                                                <span class="chaos-param-value"><span id="latency-value-display">1000</span> ms</span>
+                                            </div>
+                                            <input type="range" id="latency-slider" class="chaos-slider" 
+                                                min="50" max="10000" step="50" value="1000">
+                                            <div class="chaos-slider-ticks">
+                                                <span>50ms</span><span>2.5s</span><span>5s</span><span>10s</span>
+                                            </div>
+                                        </div>
+                                        <div id="jitter-param" class="chaos-param-row hidden">
+                                            <div class="chaos-param-header">
+                                                <span class="chaos-param-label">🎲 Jitter máximo</span>
+                                                <span class="chaos-param-value">0 – <span id="jitter-value-display">500</span> ms</span>
+                                            </div>
+                                            <input type="range" id="jitter-slider" class="chaos-slider" 
+                                                min="50" max="5000" step="50" value="500">
+                                            <div class="chaos-slider-ticks">
+                                                <span>50ms</span><span>1.25s</span><span>2.5s</span><span>5s</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <button id="clear-chaos-btn" class="btn btn-small btn-warning full-width" style="margin-top: 8px;">
                                         Reset All Simulation
                                     </button>

@@ -34,6 +34,13 @@ export const dom = {
     modalLeafId: document.getElementById('modal-leaf-id'),
     chaosStatusIndicator: document.getElementById('chaos-status-indicator'),
     clearChaosBtn: document.getElementById('clear-chaos-btn'),
+    chaosParamsPanel: document.getElementById('chaos-params-panel'),
+    latencyParam: document.getElementById('latency-param'),
+    jitterParam: document.getElementById('jitter-param'),
+    latencySlider: document.getElementById('latency-slider'),
+    jitterSlider: document.getElementById('jitter-slider'),
+    latencyValueDisplay: document.getElementById('latency-value-display'),
+    jitterValueDisplay: document.getElementById('jitter-value-display'),
     
     // Other
     refreshCertsBtn: document.getElementById('refresh-certs-btn'),
