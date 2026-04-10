@@ -16,7 +16,7 @@ async function syncRules() {
 
   const rulesToNodes = (rule) => {
     const nodes = [];
-    let safeSource = rule.source.replace(/^https?:\/\//, '').replace(/\/?$/, '');
+    let safeSource = normalizeHostname(rule.source);
     const baseId = parseInt(rule.id, 10);
 
     const condition = {
@@ -180,8 +180,22 @@ let bgState = {
   remoteEngineUrl: '',
   nativePort: null,
   leafRulesApplied: new Set(),
-  leafChaosModes: new Map() // tabId -> mode (latency, jitter, drop, error)
+  leafChaosModes: {}, containerChaosModes: {} // Persistent object (tabId -> mode)
 };
+
+async function saveChaosModes() {
+  await browser.storage.local.set({ 
+    leafChaosModes: bgState.leafChaosModes,
+    containerChaosModes: bgState.containerChaosModes
+  });
+}
+
+async function loadChaosModes() {
+  const data = await browser.storage.local.get(['leafChaosModes', 'containerChaosModes']);
+  if (data.leafChaosModes) bgState.leafChaosModes = data.leafChaosModes;
+  if (data.containerChaosModes) bgState.containerChaosModes = data.containerChaosModes;
+  console.log("[Identity] Loaded persistent chaos modes. Tabs:", Object.keys(bgState.leafChaosModes).length, "Containers:", Object.keys(bgState.containerChaosModes).length);
+}
 
 function getNativePort() {
   if (!bgState.isEngineActive) {
@@ -205,9 +219,17 @@ function getNativePort() {
     bgState.nativePort.onMessage.addListener(async (msg) => {
       if (msg.type === "ready" && msg.port) {
         console.log("Straws Engine synchronized on port:", msg.port);
-        // Normalize port format (ensure it's just the number or 127.0.0.1:port)
-        const portClean = msg.port.replace(":", "");
-        bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
+        // Normalize port format: msg.port can be ":5782", "5782", or "127.0.0.1:5782"
+        const rawPort = String(msg.port).trim();
+        if (rawPort.includes('.')) {
+          // Already a full "host:port" string (e.g. "127.0.0.1:5782")
+          bgState.remoteEngineUrl = rawPort.replace(/^:/, '');
+        } else {
+          // Just a port number possibly prefixed with ":" (e.g. ":5782" or "5782")
+          const portNum = rawPort.replace(/^:/, '').replace(/\D/g, '');
+          bgState.remoteEngineUrl = `127.0.0.1:${portNum}`;
+        }
+        console.log("Resolved remoteEngineUrl:", bgState.remoteEngineUrl);
         updateProxySettings(bgState.rules, bgState.masterSwitch).then(() => {
           syncRules();
         });
@@ -326,9 +348,29 @@ async function updateProxySettings(rulesObj, masterSwitch) {
   }
 }
 
+function parseEngineUrl(defaultPort = 5783) {
+  let proxyHost = "127.0.0.1";
+  let proxyPort = defaultPort;
+
+  if (bgState.remoteEngineUrl) {
+    // remoteEngineUrl is always "host:port" after the fix in the ready handler
+    const colonIdx = bgState.remoteEngineUrl.lastIndexOf(':');
+    if (colonIdx !== -1) {
+      const h = bgState.remoteEngineUrl.substring(0, colonIdx);
+      const p = parseInt(bgState.remoteEngineUrl.substring(colonIdx + 1), 10);
+      if (h) proxyHost = h;
+      if (!isNaN(p) && p > 0) proxyPort = p;
+    }
+  }
+
+  return { proxyHost, proxyPort };
+}
+
 function generatePACScript(rules) {
+  const { proxyHost, proxyPort } = parseEngineUrl(5783);
+
   const cases = rules.map(rule => {
-    return `if (shExpMatch(host, "${rule.source}")) return "PROXY 127.0.0.1:5783";`;
+    return `if (shExpMatch(host, "${rule.source}")) return "PROXY ${proxyHost}:${proxyPort}";`;
   }).join('\n    ');
 
   return `
@@ -340,32 +382,97 @@ function generatePACScript(rules) {
 }
 
 // Firefox identity serializer for Proxy-Authorization
+// Firefox identity serializer (JSON Protocol - Clean Metadata Pro)
 async function encodeIdentity(tabId) {
-  if (tabId < 0) return "type:system";
+  if (tabId < 0) return btoa(JSON.stringify({ type: "system" }));
   
   const tabInfo = await getTabInfo(tabId);
   const winId = (tabInfo.windowId !== undefined && tabInfo.windowId !== null) ? tabInfo.windowId : -1;
-  const chaosMode = bgState.leafChaosModes.get(tabId) || "";
   
-  let identity = `win:${winId}|tab:${tabId}`;
+  // 1. Try Tab ID first
+  let chaosMode = bgState.leafChaosModes[Number(tabId)] || "";
   
-  // Add container info if available in cache
+  // 2. Try Container Name fallback
+  let containerName = "";
+  if (tabInfo.cookieStoreId && tabInfo.cookieStoreId !== 'firefox-default') {
+     try {
+       const container = await browser.contextualIdentities.get(tabInfo.cookieStoreId);
+       if (container) {
+         containerName = container.name;
+         if (!chaosMode) chaosMode = bgState.containerChaosModes[containerName] || "";
+       }
+     } catch (e) {}
+  }
+
+  if (chaosMode) {
+    console.log(`[Identity] TRACE: Found Chaos Mode '${chaosMode}' for Tab ${tabId} (Container: ${containerName})`);
+  }
+  
+  const payload = {
+    win: winId,
+    tab: Number(tabId),
+    chaos: chaosMode
+  };
+
+  if (chaosMode) {
+    console.log(`[Identity] Tab ${tabId} has Chaos Mode: ${chaosMode}`);
+  }
+
+  // Add container info if available
   if (tabInfo.cookieStoreId && tabInfo.cookieStoreId !== 'firefox-default') {
     try {
-      // We try to get from cache if we can, but since this is async, 
-      // we might just use the raw cookieStoreId if not yet resolved.
       const container = await getContainerInfo(tabId);
       if (container) {
-        identity += `|cont:${container.name}|color:${container.colorCode}`;
+        payload.cont = container.name;
+        payload.color = container.colorCode;
       }
     } catch (e) {}
   }
   
-  if (chaosMode) {
-    identity += `|chaos:${chaosMode}`;
-  }
-  
+  const jsonStr = JSON.stringify(payload);
+  console.log("[Identity] Serializing payload:", payload);
+  const identity = btoa(unescape(encodeURIComponent(jsonStr)));
   return identity;
+}
+
+function normalizeHostname(host) {
+  if (!host) return "";
+  let h = host.trim();
+  // Remove protocol
+  if (h.includes("://")) {
+    h = h.split("://")[1];
+  }
+  // Remove path
+  if (h.includes("/")) {
+    h = h.split("/")[0];
+  }
+  // Remove port
+  if (h.includes(":")) {
+    const parts = h.split(":");
+    // Check if it's not part of an IPv6 address
+    if (!h.includes("]") || h.lastIndexOf(":") > h.lastIndexOf("]")) {
+      h = parts[0];
+    }
+  }
+  return h.toLowerCase().replace(/\.$/, "");
+}
+
+function matchDomain(pattern, hostname) {
+  const h = hostname.toLowerCase();
+  const p = pattern.toLowerCase();
+
+  // 1. Exact match
+  if (h === p) return true;
+
+  // 2. Wildcard match
+  if (p.includes("*")) {
+    const regexSource = "^" + p.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(".*") + "$";
+    const regex = new RegExp(regexSource);
+    return regex.test(h);
+  }
+
+  // 3. Implicit subdomain match
+  return h.endsWith("." + p);
 }
 
 // Firefox listener optimized with proxy authentication for identity
@@ -374,32 +481,49 @@ async function handleFirefoxProxy(requestInfo) {
 
   const url = new URL(requestInfo.url);
   const rules = Object.values(bgState.rules).filter(r => r.active && r.type === 'engine');
-  const matchingRule = rules.find(r => url.hostname === r.source || url.hostname.endsWith('.' + r.source));
+  
+  const matchingRule = rules.find(r => matchDomain(normalizeHostname(r.source), url.hostname));
 
   if (matchingRule) {
-    let proxyHost = "127.0.0.1";
-    let proxyPort = 5783; // Firefox engine port
-
-    if (bgState.remoteEngineUrl) {
-      const parts = bgState.remoteEngineUrl.split(':');
-      proxyHost = parts[0];
-      proxyPort = parseInt(parts[1]) || 5783;
-    }
+    const { proxyHost, proxyPort } = parseEngineUrl(5783);
 
     // Generate identity for Proxy-Authorization
-    const identity = await encodeIdentity(requestInfo.tabId);
+    // Defensive check: ensure tabId is valid
+    const cleanTabId = (requestInfo.tabId !== undefined && requestInfo.tabId !== null) ? requestInfo.tabId : -1;
+    const identity = await encodeIdentity(cleanTabId);
 
-    return { 
+    const res = { 
       type: "http", 
       host: proxyHost, 
       port: proxyPort,
       username: identity,
-      password: "straws" // Standard dummy password for Straws Proxy Auth
+      password: "straws" 
     };
+    console.log("[AUDIT] Proxy Settings:", res);
+    return res;
   }
 
   return { type: "direct" };
 }
+
+// Automatic Proxy Auth Fulfiller (Zero-Prompt)
+browser.webRequest.onAuthRequired.addListener(
+  async (details) => {
+    if (details.isProxy) {
+      const cleanTabId = (details.tabId !== undefined && details.tabId !== null) ? details.tabId : -1;
+      const identity = await encodeIdentity(cleanTabId);
+      console.log(`[AUDIT] Auto-filling Auth for tab ${cleanTabId}`);
+      return {
+        authCredentials: {
+          username: identity,
+          password: "straws"
+        }
+      };
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["blocking"]
+);
 
 
 
@@ -454,13 +578,29 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
   if (message.type === 'SET_LEAF_CHAOS') {
-    const { tabId, mode } = message;
+    const { tabId, mode, containerName } = message;
+    const cleanTabId = Number(tabId);
     if (mode) {
-      bgState.leafChaosModes.set(tabId, mode);
+      bgState.leafChaosModes[cleanTabId] = mode;
+      if (containerName) bgState.containerChaosModes[containerName] = mode;
     } else {
-      bgState.leafChaosModes.delete(tabId);
+      delete bgState.leafChaosModes[cleanTabId];
+      if (containerName) delete bgState.containerChaosModes[containerName];
     }
-    // No longer need to refresh tagging, Proxy-Auth handles it dynamically
+    saveChaosModes();
+    
+    // Engine Sync (Real-time)
+    const port = getNativePort();
+    if (port) {
+      port.postMessage({
+        command: "sync_chaos",
+        tabId: cleanTabId,
+        container: containerName || "",
+        mode: mode || "none"
+      });
+    }
+
+    console.log(`[Identity] Chaos Mode '${mode}' SET for Tab ${cleanTabId} (Container: ${containerName})`);
     sendResponse({ success: true });
     return false;
   }
@@ -598,6 +738,7 @@ browser.storage.local.get(['isBrowserLogActive', 'isEngineLogActive', 'isEngineA
   
   // Initial Tab Identity Sync
   syncTabCache();
+  loadChaosModes();
 });
 
 // Alarms (auto-off Live Log)
@@ -721,6 +862,8 @@ browser.tabs.onActivated.addListener(async (activeInfo) => {
 
 browser.tabs.onRemoved.addListener((tabId) => {
   tabInfoCache.delete(tabId);
+  bgState.leafChaosModes.delete(tabId);
+  console.log(`[Identity] Cleaned up state for closed tab ${tabId}`);
 });
 
 // Helper to send logs to UI

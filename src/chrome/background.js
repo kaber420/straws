@@ -205,9 +205,17 @@ function getNativePort() {
     bgState.nativePort.onMessage.addListener((msg) => {
       if (msg.type === "ready" && msg.port) {
         console.log("Straws Engine synchronized on port:", msg.port);
-        // Normalize port format (ensure it's just the number or 127.0.0.1:port)
-        const portClean = msg.port.replace(":", "");
-        bgState.remoteEngineUrl = `127.0.0.1:${portClean}`;
+        // Normalize port format: msg.port can be ":5782", "5782", or "127.0.0.1:5782"
+        const rawPort = String(msg.port).trim();
+        if (rawPort.includes('.')) {
+          // Already a full "host:port" string (e.g. "127.0.0.1:5782")
+          bgState.remoteEngineUrl = rawPort.replace(/^:/, '');
+        } else {
+          // Just a port number possibly prefixed with ":" (e.g. ":5782" or "5782")
+          const portNum = rawPort.replace(/^:/, '').replace(/\D/g, '');
+          bgState.remoteEngineUrl = `127.0.0.1:${portNum}`;
+        }
+        console.log("Resolved remoteEngineUrl:", bgState.remoteEngineUrl);
         updateProxySettings(bgState.rules, bgState.masterSwitch);
       }
       if (msg.type === "log" || msg.type === "tls_match" || msg.type === "tls_error" || msg.type === "http" || msg.type === "tls_handshake") {
@@ -323,15 +331,26 @@ async function updateProxySettings(rulesObj, masterSwitch) {
   }
 }
 
-function generatePACScript(rules) {
+function parseEngineUrl() {
   let proxyHost = "127.0.0.1";
   let proxyPort = 5782;
 
   if (bgState.remoteEngineUrl) {
-    const parts = bgState.remoteEngineUrl.split(':');
-    if (parts[0]) proxyHost = parts[0];
-    if (parts.length > 1 && parts[1]) proxyPort = parseInt(parts[1].replace(/\D/g, '')) || 5782;
+    // remoteEngineUrl is always "host:port" after the fix in the ready handler
+    const colonIdx = bgState.remoteEngineUrl.lastIndexOf(':');
+    if (colonIdx !== -1) {
+      const h = bgState.remoteEngineUrl.substring(0, colonIdx);
+      const p = parseInt(bgState.remoteEngineUrl.substring(colonIdx + 1), 10);
+      if (h) proxyHost = h;
+      if (!isNaN(p) && p > 0) proxyPort = p;
+    }
   }
+
+  return { proxyHost, proxyPort };
+}
+
+function generatePACScript(rules) {
+  const { proxyHost, proxyPort } = parseEngineUrl();
 
   const cases = rules.map(rule => {
     return `if (shExpMatch(host, "${rule.source}")) return "PROXY ${proxyHost}:${proxyPort}";`;
@@ -354,15 +373,7 @@ function handleFirefoxProxy(requestInfo) {
   const matchingRule = rules.find(r => url.hostname === r.source || url.hostname.endsWith('.' + r.source));
 
   if (matchingRule) {
-    let proxyHost = "127.0.0.1";
-    let proxyPort = 5782;
-
-    if (bgState.remoteEngineUrl) {
-      const parts = bgState.remoteEngineUrl.split(':');
-      proxyHost = parts[0];
-      proxyPort = parseInt(parts[1]) || 5782;
-    }
-
+    const { proxyHost, proxyPort } = parseEngineUrl();
     return { type: "http", host: proxyHost, port: proxyPort };
   }
 
@@ -675,19 +686,15 @@ async function setupLeafTagging(tabId, force = false) {
     const ruleId = tabId + 10000; 
     
     const chaosMode = bgState.leafChaosModes.get(tabId);
-    const headers = [{
-      header: 'X-Straws-Leaf',
-      operation: 'set',
-      value: `${winId}-${tabId}`
-    }];
+    const chaosTag = chaosMode ? "|chaos:" + chaosMode : "";
+    const authString = "win:" + winId + "|tab:" + tabId + chaosTag + ":straws";
+    const authPayload = btoa(authString);
 
-    if (chaosMode) {
-      headers.push({
-        header: 'X-Straws-Chaos',
-        operation: 'set',
-        value: chaosMode
-      });
-    }
+    const headers = [{
+      header: 'Proxy-Authorization',
+      operation: 'set',
+      value: "Basic " + authPayload
+    }];
 
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds: [ruleId],

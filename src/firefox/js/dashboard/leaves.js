@@ -201,6 +201,7 @@ export function setLeafChaos(mode) {
     browser.runtime.sendMessage({ 
         type: 'SET_LEAF_CHAOS', 
         tabId: leaf.tabId, 
+        containerName: leaf.container ? leaf.container.name : null,
         mode: leaf.chaosMode 
     }).catch(() => {});
     
