@@ -1,10 +1,10 @@
-# 🥤 Straws (Active Interceptor)
+# 🥤 Straws + straws-core (https://github.com/kaber420/straws-core)
 
 > **"El Laboratorio Cibernético Definitivo para Observabilidad e Ingeniería del Caos en el Navegador"**
 
 **Straws** es la iteración avanzada (Versión Normal/Pro) del ecosistema Straws. A diferencia de _StrawsLite_ (enfocado en direccionamiento rápido y ligero), **Straws** está diseñado como un proxy de intercepción manual y un centro de mando para diagnósticos profundos de red. 
 
-Actuando como una "Transmisión Manual", te permite observar, pausar, modificar e inyectar anomalías al tráfico de red con una precisión quirúrgica a nivel de pestaña.
+ te permite observar, pausar, modificar e inyectar anomalías al tráfico de red con una precisión quirúrgica a nivel de pestaña.
 
 ## 🚀 Características Principales
 
@@ -19,8 +19,8 @@ Actuando como una "Transmisión Manual", te permite observar, pausar, modificar 
     Una interfaz premium que reemplaza a las limitadas DevTools del navegador. Incluye inspección de cascadas de red (waterfalls), carga de recursos, y monitoreo del inventario de pestañas activas.
 *   **Edición Declarativa (DNR) y Modificación de Cabeceras 🛠️:**
     Intercepta respuestas, reescribe cabeceras HTTP sobre la marcha y bloquea peticiones basado en reglas dinámicas, todo directamente desde la interfaz y sin recargar la página.
-*   **Integración Transparente con el Motor Go:**
-    Envía y recibe datos complejos de telemetría a través del proxy binario `straws-core` usando comunicaciones de ultra-baja latencia (Native Messaging).
+*   **Integración Transparente con el Motor Go straws engine:**
+    Envía y recibe datos complejos de telemetría a través del proxy binario `straws-core` usando comunicaciones de ultra-baja latencia (Native Messaging) https://github.com/kaber420/straws-core.
 
 ## 📸 Vista Previa (Screenshots)
 
